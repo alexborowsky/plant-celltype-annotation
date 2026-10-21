@@ -358,7 +358,8 @@ def main():
         # Only rescue near-equivalent paralogs (PCNA1/2, SWEET11/12: ratio ~0.9-1.0). When the target
         # lacks a true ortholog, the marker's best hit is a different subfamily (SUC2 -> grass SUT4-type
         # at 0.78), and the gene's own best hit scores clearly higher.
-        best_bits = gm.loc[gm['hit_rank'] == 1].set_index('query_gene')['bitscore']
+        # tied hits share rank 1, so take the max per gene
+        best_bits = gm.loc[gm['hit_rank'] == 1].groupby('query_gene')['bitscore'].max()
         rescue = rescue.assign(ratio=rescue['bitscore'] / rescue['query_gene'].map(best_bits))
         low = rescue[rescue['ratio'] < args.rescue_min_ratio]
         if len(low):
