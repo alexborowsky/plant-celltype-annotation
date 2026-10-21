@@ -24,8 +24,11 @@ annotation. It generalizes the workflow used to annotate an
 *N. benthamiana* leaf atlas, and has been tested on leaf, root and
 bryophyte data.
 
-**Most of the value is in the reasoning, not the scripts.** The scripts
-produce evidence. You read the evidence, propose labels with explicit
+**Most of the value is in the reasoning and the curated references, not the
+scripts.** The graded marker tables, characterized markers, atlas reviews and
+pitfalls under `references/` hold knowledge that is not collected anywhere
+else, so read them rather than relying on memory. The scripts produce
+evidence. You read the evidence, propose labels with explicit
 justification, and the user approves them. Do not treat any automated score
 as a label.
 

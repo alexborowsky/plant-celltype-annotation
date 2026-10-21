@@ -21,8 +21,18 @@ It guides the agent through the whole loop:
 5. Reason about each cluster, write an annotation table, apply it, and build
    an evidence report that shows why each label holds.
 
-Most of the value is in the reasoning steps in `SKILL.md`. The scripts gather
-evidence; they don't decide.
+Most of the value is in two places: the reasoning steps in `SKILL.md`, and the
+curated reference data. The scripts gather evidence; they don't decide.
+
+The curated data isn't available in one place elsewhere:
+- marker tables graded by evidence (function, reporter/in situ, expression),
+  each row with its basis and source, and tagged by lineage so that markers
+  only apply where the cell type exists;
+- reporter- and mutant-characterized markers for cell types that atlases
+  miss;
+- reviews of ~390 published plant single-cell and spatial datasets, with
+  label access, quality, and the problems found in each annotation;
+- plant-specific pitfalls learned from testing on real data.
 
 ## What's included
 
