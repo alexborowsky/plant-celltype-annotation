@@ -167,6 +167,44 @@ def plot_violins(ax, v, labels, highlight, max_cells, rng):
     return dict(zip(groups, fracs))
 
 
+CLUSTER_COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442',
+                  '#4477AA', '#228833', '#AA3377', '#66CCEE', '#CCBB44', '#EE6677', '#555555']
+
+
+def plot_cluster_key(fig, ax, axt, um, clus, cell_types, size, unknown_label):
+    """UMAP colored by one cluster key with IDs printed on it, plus a cluster -> size / cell type table.
+
+    Cells outside the key (subclusterings cover a subset) are drawn grey. Colors repeat after 14
+    clusters, so the IDs on the map, not the colors, identify clusters."""
+    ok = (clus != 'nan') & (clus != '')
+    ax.scatter(um[~ok, 0], um[~ok, 1], s=size, c=BACKGROUND, lw=0, rasterized=True)
+    groups = sorted(pd.unique(clus[ok]), key=natural_key)
+    rows = []
+    for i, g in enumerate(groups):
+        m = clus == g
+        ax.scatter(um[m, 0], um[m, 1], s=size, c=CLUSTER_COLORS[i % len(CLUSTER_COLORS)], lw=0,
+                   rasterized=True)
+        ct = pd.Series(cell_types[m]).value_counts()
+        top = ct.index[0]
+        share = ct.iloc[0] / m.sum()
+        rows.append([g, f'{m.sum():,}', top if share >= 0.995 else f'{top} ({share:.0%})'])
+    for g in groups:
+        m = clus == g
+        ax.text(np.median(um[m, 0]), np.median(um[m, 1]), g, fontsize=6, ha='center', va='center',
+                fontweight='bold', bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none', alpha=0.75))
+    umap_axes(ax)
+    axt.axis('off')
+    tbl = axt.table(cellText=rows, colLabels=['Cluster', 'Cells', f'Cell type (share; {unknown_label} = unlabeled)'],
+                    loc='upper left', cellLoc='left', colLoc='left', colWidths=[0.16, 0.18, 0.66])
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(6 if len(rows) <= 20 else 5)
+    tbl.scale(1, 0.85 if len(rows) > 20 else 1.0)
+    for (r, c), cell in tbl.get_celld().items():
+        cell.set_edgecolor('#DDDDDD')
+        if r == 0:
+            cell.set_text_props(fontweight='bold')
+
+
 def text_panel(ax, lines, width=40):
     """Wrapped text that always fits its axes: the font shrinks (and wrap width grows) with line count."""
     ax.axis('off')
@@ -428,6 +466,28 @@ def main():
                     cell.set_text_props(fontweight='bold')
         pdf.savefig(fig)
         plt.close(fig)
+
+        # Cluster definitions: every cluster key used by the annotation rows or the violin plots,
+        # so cluster IDs on the cell-type pages can be looked up without the h5ad (two keys per page)
+        ckeys = [k for k in dict.fromkeys([pl['key'] for pl in plans.values()] + list(ann['obs_key']))
+                 if k and k in adata.obs.columns]
+        ckeys = sorted(ckeys, key=lambda k: adata.obs[k].astype(str).nunique())
+        for i0 in range(0, len(ckeys), 2):
+            fig = plt.figure(figsize=(8.5, 11))
+            gs = GridSpec(2, 2, figure=fig, width_ratios=[1.35, 1], hspace=0.15, wspace=0.05,
+                          left=0.04, right=0.97, top=0.91, bottom=0.03)
+            fig.text(0.05, 0.965, 'Clusters', fontsize=13, fontweight='bold')
+            fig.text(0.05, 0.948, 'Cluster keys used by the annotation table and the violin plots; '
+                     'the table gives each cluster\'s size and the cell type its cells were assigned', fontsize=8)
+            for j, k in enumerate(ckeys[i0:i0 + 2]):
+                ax = fig.add_subplot(gs[j, 0])
+                n_in = int((~adata.obs[k].isna()).sum()) if adata.obs[k].isna().any() else adata.n_obs
+                ax.set_title(k + (f'  (covers {n_in:,} of {adata.n_obs:,} cells; others grey)' if n_in < adata.n_obs
+                                  else ''), fontsize=9, fontweight='bold', loc='left')
+                plot_cluster_key(fig, ax, fig.add_subplot(gs[j, 1]), um, adata.obs[k].astype(str).to_numpy(),
+                                 labels, size, args.unknown_label)
+            pdf.savefig(fig)
+            plt.close(fig)
 
         # One page per cell type
         for ct in cts:

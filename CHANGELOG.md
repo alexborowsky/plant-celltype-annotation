@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.1.1] - 2026-10-21
+
+### Added
+- Evidence report: **cluster pages** after the overview. For each cluster key used by the annotation rows
+  (and so by the violin plots), a UMAP with cluster IDs printed on it and a table of each cluster's size and
+  assigned cell type. Subclusterings are drawn over the full UMAP, with the cells they cover stated. The
+  report now stands alone: cluster IDs on the cell-type pages can be looked up without the h5ad.
+
 ## [0.1.0] - 2026-10-21
 
 First public pre-release, for testing. Feedback welcome as issues.

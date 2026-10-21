@@ -693,7 +693,11 @@ python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellType
 
 The PDF contains:
 - **An overview page:** UMAP labeled by cell type, plus a summary table
-  with the strongest marker for each type.
+  with the strongest marker for each type, ordered by cell count.
+- **Cluster pages:** a UMAP of each cluster key used by the annotation rows
+  (and so by the violin plots), with cluster IDs printed on it and a table
+  of each cluster's size and assigned cell type. The report can be read
+  without the h5ad.
 - **One page per cell type**, which shows:
   - a UMAP highlighting the type, and the annotation rows with their
     Evidence text
