@@ -1,0 +1,18 @@
+ref_species	tissue	cell_type	ref_gene	symbol	kind	evidence	confidence	requires	excludes	basis	source
+sorghum	leaf	Mesophyll	Sobic.009G132900	PPDK	type	function	high	C4		Pyruvate,orthophosphate dikinase regenerating PEP in C4 mesophyll chloroplasts.	Brophy lab sorghum curation
+sorghum	leaf	Bundle_Sheath	Sobic.003G036200	NADP-ME	type	function	high	C4		Chloroplastic NADP-malic enzyme decarboxylating malate in bundle sheath of NADP-ME C4 grasses.	Brophy lab sorghum curation
+sorghum	leaf	Bundle_Sheath	Sobic.007G141200	CCR1	type	characterized_enriched	medium	grass		Cinnamoyl-CoA reductase in monolignol biosynthesis; marks lignifying bundle sheath and sclerenchyma.	Brophy lab sorghum curation
+sorghum	leaf	Sclerenchyma	Sobic.007G141200	CCR1	type	characterized_enriched	medium	grass		Cinnamoyl-CoA reductase in monolignol biosynthesis; marks lignifying sclerenchyma and bundle sheath.	Brophy lab sorghum curation
+sorghum	leaf	Phloem_Companion	Sobic.001G488700	SUT1	type	function	high	grass		Grass SUT1 sucrose/H+ symporter for phloem loading in CC/SE (maize sut1 loading defect).	Brophy lab sorghum curation
+sorghum	leaf	Phloem_Parenchyma	Sobic.008G094400	SWEET13	type	function	high	grass		Clade III SWEET exporting sucrose from phloem parenchyma for loading (maize SWEET13a-c).	Brophy lab sorghum curation
+sorghum	leaf	Phloem	Sobic.010G164200	FTL12	type	characterized_enriched	medium	grass		FT-like PEBP family member; phloem-expressed (FT family acts from companion cells).	Brophy lab sorghum curation
+sorghum	leaf	Phloem	Sobic.009G014400	PEAR2	type	function	medium		bryophyte	DOF TF promoting periclinal divisions in the protophloem lineage (Arabidopsis PEAR1/2).	Brophy lab sorghum curation
+sorghum	leaf	Xylem	Sobic.003G296400	IRX1	type	function	high		bryophyte	CESA8 secondary-wall cellulose synthase; irx1 collapsed xylem.	Brophy lab sorghum curation
+sorghum	leaf	Xylem	Sobic.009G008800	XCP1	type	function	high		bryophyte	Xylem cysteine protease in tracheary-element programmed cell death.	Brophy lab sorghum curation
+sorghum	leaf	Xylem	Sobic.002G205500	CESA7	type	function	high		bryophyte	Secondary-wall cellulose synthase (IRX3 ortholog).	Brophy lab sorghum curation
+sorghum	leaf	Epidermis	Sobic.006G155700	WBC11	type	function	high			ABCG11 exporter of cuticular wax and cutin precursors from epidermal cells.	Brophy lab sorghum curation
+sorghum	leaf	Guard	Sobic.009G015350	CHX20	type	function	high		bryophyte	Guard-cell K+/H+ exchanger required for stomatal opening (Arabidopsis CHX20).	Brophy lab sorghum curation
+sorghum	leaf	Subsidiary	Sobic.009G143500	CST1	type	function	high	grass		CLOSED STOMATA1, clade I SWEET glucose transporter; maize ortholog localized only to subsidiary cells by eYFP/GUS reporters, promotes stomatal opening (Wang et al. 2019 Plant Cell).	Brophy lab sorghum curation
+sorghum	leaf	Silica	Sobic.001G265900	SLP1	type	function	high	grass		Siliplant1, protein driving silica deposition in grass leaf silica cells.	Brophy lab sorghum curation
+sorghum	leaf	Ligule	Sobic.006G247700	LG1	type	function	high	grass		LIGULELESS1 SBP-box TF required for ligule/auricle formation; preligule band of developing leaves.	Brophy lab sorghum curation
+sorghum	leaf	Trichome	Sobic.001G012300	CYP79A1	type	characterized_enriched	low	Sorghum		First committed step of dhurrin biosynthesis; with CYP71E1 and UGT85B1 enriched in the trichome cluster of sorghum leaf snRNA-seq (Adaramodu et al. 2026 bioRxiv; no reporter validation).	Brophy lab sorghum curation

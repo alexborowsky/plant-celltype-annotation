@@ -1,0 +1,34 @@
+ref_species	tissue	cell_type	ref_gene	symbol	kind	evidence	confidence	requires	excludes	basis	source
+arabidopsis	leaf	Mesophyll	AT1G67090	RBCS1A	type	characterized_enriched	medium		C4	Rubisco small subunit; CO2 fixation in C3 mesophyll chloroplasts. Abundant ambient RNA: use specificity, not presence. Marks bundle sheath in C4.	classic
+arabidopsis	leaf	Mesophyll	AT5G38430	RBCS1B	type	characterized_enriched	medium		C4	Rubisco small subunit paralog; same caveats as RBCS1A.	classic
+arabidopsis	leaf	Mesophyll	AT4G05180	PSBQ-2	type	characterized_enriched	medium		C4	PSII oxygen-evolving complex subunit; photosynthetic cells, ambient-RNA caveat.	classic
+arabidopsis	leaf	Mesophyll	AT3G01500	CA1	type	characterized_enriched	medium			Chloroplast beta-carbonic anhydrase supplying CO2 to Rubisco; mesophyll-enriched. C4 grasses use a cytosolic mesophyll CA.	classic
+arabidopsis	leaf	Bundle_Sheath	AT1G77990	SULTR2;2	type	characterized_enriched	low	Brassicaceae	C4	Low-affinity sulfate transporter reported in leaf bundle sheath; BS identity in C3 leaves is weakly marked.	classic
+arabidopsis	leaf	Epidermis	AT4G21750	ATML1	type	function	high			HD-ZIP IV TF required for L1/epidermal identity; pan-epidermal (includes guard and trichome lineages).	classic
+arabidopsis	leaf	Epidermis	AT2G42840	PDF1	type	characterized_enriched	medium			L1-specific protodermal gene used as an epidermal reporter; function unclear; highest in young/expanding epidermis.	classic
+arabidopsis	leaf	Epidermis	AT2G26250	FDH	type	function	high			KCS10 VLCFA elongase for cuticle; epidermis-specific; fdh mutants show organ fusion.	classic
+arabidopsis	leaf	Epidermis	AT1G51500	CER5	type	function	medium			ABCG12 transporter exporting cuticular wax from epidermal cells.	classic
+arabidopsis	leaf	Epidermis	AT1G49430	LACS2	type	function	medium			Long-chain acyl-CoA synthetase for cutin biosynthesis in the epidermis.	classic
+arabidopsis	leaf	Epidermis	AT2G38540	LTP1	type	characterized_enriched	low			Epidermis-enriched lipid transfer protein; cuticle role not established; large gene family.	classic
+arabidopsis	leaf	Guard	AT5G46240	KAT1	type	function	high		bryophyte	Inward-rectifying K+ channel driving guard-cell swelling for stomatal opening.	classic
+arabidopsis	leaf	Guard	AT1G12480	SLAC1	type	function	high		bryophyte	Guard-cell slow anion channel required for stomatal closure.	classic
+arabidopsis	leaf	Guard	AT3G24140	FAMA	type	function	high		bryophyte	bHLH TF for the guard mother cell to guard cell transition; strongest in young guard cells.	classic
+arabidopsis	leaf	Stomatal_lineage	AT5G53210	SPCH	type	function	high		bryophyte	bHLH TF initiating stomatal lineage asymmetric divisions; young leaves only.	classic
+arabidopsis	leaf	Stomatal_lineage	AT3G06120	MUTE	type	function	high		bryophyte	bHLH TF for meristemoid to guard mother cell transition; young leaves only.	classic
+arabidopsis	leaf	Trichome	AT3G27920	GL1	type	function	high	Brassicaceae		R2R3 MYB initiating trichome fate; no clear ortholog outside Brassicaceae (absent in tomato).	classic
+arabidopsis	leaf	Trichome	AT1G79840	GL2	type	function	high	eudicot		HD-ZIP IV TF for trichome morphogenesis (also root non-hair fate).	classic
+arabidopsis	leaf	Phloem_Companion	AT1G22710	SUC2	type	function	high	eudicot		Companion-cell sucrose/H+ symporter for apoplastic phloem loading. Eudicot type I SUT clade; grasses load via the type II SUT1 clade instead.	classic
+arabidopsis	leaf	Phloem_Parenchyma	AT3G48740	SWEET11	type	function	high		bryophyte	Clade III SWEET exporting sucrose from phloem parenchyma for phloem loading.	classic
+arabidopsis	leaf	Phloem_Parenchyma	AT5G23660	SWEET12	type	function	high		bryophyte	Clade III SWEET partner of SWEET11 in phloem parenchyma sucrose efflux.	classic
+arabidopsis	leaf	Sieve_Element	AT3G01680	SEOR1	type	function	medium		bryophyte	Forms sieve-element occlusion filaments; developing SEs only (mature SEs enucleate).	classic
+arabidopsis	any	Phloem	AT1G79430	APL	type	function	high		bryophyte	MYB-related TF required for phloem (SE and CC) identity.	classic
+arabidopsis	any	Xylem	AT4G35350	XCP1	type	function	high		bryophyte	Xylem cysteine protease in tracheary-element programmed cell death.	classic
+arabidopsis	any	Xylem	AT1G20850	XCP2	type	function	high		bryophyte	Xylem cysteine protease paralog of XCP1 in tracheary-element PCD.	classic
+arabidopsis	any	Xylem	AT5G17420	IRX3	type	function	high		bryophyte	CESA7 secondary-wall cellulose synthase; irx3 collapsed xylem.	classic
+arabidopsis	any	Xylem	AT1G71930	VND7	type	function	medium		bryophyte	NAC master regulator of vessel differentiation; developing vessels only.	classic
+arabidopsis	any	Procambium	AT4G32880	ATHB8	type	function	medium		bryophyte	HD-ZIP III TF marking pre-procambial/procambial cells and promoting xylem differentiation.	classic
+arabidopsis	any	S_Phase	AT5G65360	H3.1	state	function	high			Replication-dependent histone H3.1, transcribed in S phase.	classic
+arabidopsis	any	S_Phase	AT1G07370	PCNA1	state	function	high			DNA polymerase processivity clamp, expressed in S phase.	classic
+arabidopsis	any	Dividing_cells	AT4G37490	CYCB1;1	state	function	high			Mitotic B-type cyclin; G2/M marker (CYCB1;1 reporter).	classic
+arabidopsis	any	Dividing_cells	AT1G08560	KNOLLE	state	function	high			Cytokinesis-specific syntaxin for cell-plate formation.	classic
+arabidopsis	any	Senescing	AT5G45890	SAG12	state	function	high			Senescence-specific cysteine protease; classic senescence reporter.	classic

@@ -1,0 +1,52 @@
+ref_species	tissue	cell_type	ref_gene	symbol	kind	evidence	confidence	requires	excludes	basis	source
+arabidopsis	root	Columella	AT4G00490	BAM2	type	characterized_enriched	low		bryophyte	Plastid beta-amylase; columella-enriched (statolith starch), not columella-specific in function.	Shahan2022 (Ryu2019)
+arabidopsis	root	Columella	AT1G23210	GH9B6	type	expression	low		bryophyte	Enrichment-scored columella marker; glycosyl hydrolase family 9.	Shahan2022 (escoring)
+arabidopsis	root	Columella	AT5G57640	AT5G57640	type	expression	low		bryophyte	Enrichment-scored columella marker; uncharacterized.	Shahan2022 (escoring)
+arabidopsis	root	Columella	AT3G60650	AT3G60650	type	expression	low		bryophyte	Enrichment-scored columella marker; uncharacterized.	Shahan2022 (escoring)
+arabidopsis	root	Columella	AT1G13620	RGF2	type	expression	low		bryophyte	Enrichment-scored columella marker; root meristem growth factor peptide.	Shahan2022 (escoring)
+arabidopsis	root	Columella	AT1G17400	DRO3	type	expression	low		bryophyte	Enrichment-scored columella marker; LAZY-family gravitropism gene.	Shahan2022 (escoring)
+arabidopsis	root	Cortex	AT1G62510	AT1G62510	type	expression	low			Expression-derived cortex marker; lipid transfer protein family.	Shahan2022 (Ryu2019)
+arabidopsis	root	Cortex	AT5G07990	CYP75B1	type	characterized_enriched	medium			TT7 flavonoid 3'-hydroxylase; cortex-enriched in root atlases.	Shahan2022 (Ryu2019)
+arabidopsis	root	Cortex	AT5G55250	IAMT1	type	characterized_enriched	medium			IAA carboxyl methyltransferase; cortex-enriched in root atlases.	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT3G54220	SCR	type	function	high		bryophyte	GRAS TF required for endodermis/cortex specification; also expressed in QC.	classic
+arabidopsis	root	Endodermis	AT2G36100	CASP1	type	function	high		bryophyte	Casparian strip membrane domain protein scaffolding the strip in endodermis.	classic
+arabidopsis	root	Endodermis	AT3G11550	CASP2	type	function	high		bryophyte	Casparian strip membrane domain protein (endodermis).	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT2G27370	CASP3	type	function	high		bryophyte	Casparian strip membrane domain protein (endodermis).	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT5G06200	CASP4	type	function	high		bryophyte	Casparian strip membrane domain protein (endodermis).	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT5G57620	MYB36	type	function	high		bryophyte	MYB TF activating Casparian strip genes in differentiating endodermis.	Shahan2022 (Ryu2019); classic
+arabidopsis	root	Endodermis	AT5G42180	PER64	type	function	high		bryophyte	Peroxidase required for Casparian strip lignification.	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT1G61590	AT1G61590	type	expression	low		bryophyte	Expression-derived endodermis marker; protein kinase.	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT4G02090	AT4G02090	type	expression	low		bryophyte	Expression-derived endodermis marker; uncharacterized.	Shahan2022 (Ryu2019)
+arabidopsis	root	Endodermis	AT5G45210	AT5G45210	type	expression	low		bryophyte	Expression-derived endodermis marker; TIR-NBS protein.	Shahan2022 (Clark2019)
+arabidopsis	root	Trichoblast	AT5G49270	COBL9	type	function	high		bryophyte	COBRA-like protein required for root-hair tip growth.	Shahan2022 (Ryu2019); classic
+arabidopsis	root	Trichoblast	AT1G12560	EXPA7	type	function	high		bryophyte	Root-hair-specific expansin with hair-cell-specific cis element.	classic
+arabidopsis	root	Trichoblast	AT1G48930	GH9C1	type	characterized_enriched	medium		bryophyte	Glycosyl hydrolase 9C1; root-hair-enriched.	Shahan2022 (Ryu2019)
+arabidopsis	root	Trichoblast	AT1G69240	MES15	type	characterized_enriched	low		bryophyte	Methylesterase; root-hair-enriched.	Shahan2022 (Ryu2019)
+arabidopsis	root	Trichoblast	AT1G45545	WEL2	type	characterized_enriched	low		bryophyte	Root-hair-enriched gene.	Shahan2022 (Ryu2019)
+arabidopsis	root	Trichoblast	AT1G33090	AT1G33090	type	expression	low		bryophyte	Expression-derived hair-cell marker; MATE transporter.	Shahan2022 (Ryu2019)
+arabidopsis	root	Trichoblast	AT3G09330	AT3G09330	type	expression	low		bryophyte	Expression-derived hair-cell marker; uncharacterized.	Shahan2022 (Ryu2019)
+arabidopsis	root	Trichoblast	AT1G55440	AT1G55440	type	expression	low		bryophyte	Enrichment-scored hair-cell marker; uncharacterized.	Shahan2022 (escoring)
+arabidopsis	root	Atrichoblast	AT1G79840	GL2	type	function	high	eudicot		HD-ZIP IV TF specifying non-hair fate in position-dependent epidermal patterning.	Shahan2022 (Ryu2019); classic
+arabidopsis	root	Atrichoblast	AT2G37260	WRKY44	type	function	medium	eudicot		TTG2 WRKY TF acting in the TTG1 pathway for epidermal patterning.	Shahan2022 (Ryu2019)
+arabidopsis	root	Atrichoblast	AT1G65310	XTH17	type	characterized_enriched	low		bryophyte	Xyloglucan endotransglucosylase; non-hair-enriched.	Shahan2022 (Ryu2019)
+arabidopsis	root	Atrichoblast	AT1G68470	AT1G68470	type	expression	low		bryophyte	Enrichment-scored non-hair marker; uncharacterized.	Shahan2022 (escoring)
+arabidopsis	root	Lateral_Root_Cap	AT1G79580	SMB	type	function	high		bryophyte	SOMBRERO NAC TF controlling root cap maturation and lateral root cap identity.	classic
+arabidopsis	root	Lateral_Root_Cap	AT4G37160	sks15	type	characterized_enriched	low		bryophyte	SKU5-similar multicopper oxidase; LRC-enriched.	Shahan2022 (Ryu2019)
+arabidopsis	root	Lateral_Root_Cap	AT3G55930	AT3G55930	type	expression	low		bryophyte	Enrichment-scored LRC marker.	Shahan2022 (escoring)
+arabidopsis	root	Lateral_Root_Cap	AT5G36880	ACS	type	expression	low		bryophyte	Enrichment-scored LRC marker; acetyl-CoA synthetase.	Shahan2022 (escoring)
+arabidopsis	root	Phloem	AT1G79430	APL	type	function	high		bryophyte	MYB-related TF required for phloem (SE and CC) identity.	Shahan2022 (Ryu2019); classic
+arabidopsis	root	Phloem	AT5G62940	DOF5.6	type	function	medium		bryophyte	HCA2 DOF TF promoting phloem/cambium development.	Shahan2022 (Ryu2019)
+arabidopsis	root	Phloem	AT3G43270	PME32	type	characterized_enriched	low		bryophyte	Pectin methylesterase; phloem-enriched.	Shahan2022 (Denyer2019)
+arabidopsis	root	Phloem	AT1G26790	CDF6	type	expression	low		bryophyte	Enrichment-scored phloem marker; DOF TF.	Shahan2022 (escoring)
+arabidopsis	root	Xylem	AT2G37090	IRX9	type	function	high		bryophyte	Glycosyltransferase for secondary-wall xylan; irx9 collapsed xylem.	Shahan2022 (Ryu2019)
+arabidopsis	root	Xylem	AT5G12870	MYB46	type	function	high		bryophyte	MYB master switch for secondary-wall biosynthesis in vessels and fibers.	Shahan2022 (Ryu2019)
+arabidopsis	root	Xylem	AT3G05180	AT3G05180	type	expression	low		bryophyte	Enrichment-scored xylem marker; GDSL lipase.	Shahan2022 (escoring)
+arabidopsis	root	Procambium	AT3G09070	OPS	type	function	medium		bryophyte	OCTOPUS, polar membrane protein in provascular/phloem lineage for protophloem differentiation.	Shahan2022 (Nagawa2006)
+arabidopsis	root	Procambium	AT5G43810	AGO10	type	function	medium		bryophyte	ZWILLE/PINHEAD Argonaute expressed in provasculature, sequestering miR165/166.	Shahan2022 (Nagawa2006)
+arabidopsis	root	Stele	AT4G37650	SHR	type	function	high		bryophyte	GRAS TF transcribed in stele; protein moves outward to specify endodermis.	classic
+arabidopsis	root	Pericycle	AT5G26930	GATA23	type	function	high		bryophyte	GATA TF specifying lateral root founder cells in xylem-pole pericycle (founder cells only).	Shahan2022 (Beekman2014)
+arabidopsis	root	Pericycle	AT1G11330	RDA2	type	expression	low		bryophyte	Enrichment-scored pericycle marker; S-locus lectin kinase.	Shahan2022 (escoring)
+arabidopsis	root	Quiescent_Center	AT3G11260	WOX5	type	function	high		bryophyte	Homeobox TF expressed in QC that maintains columella stem cells.	classic
+arabidopsis	root	Quiescent_Center	AT3G26120	TEL1	type	characterized_enriched	low		bryophyte	TERMINAL EAR1-like RNA-binding protein; QC-enriched.	Shahan2022 (Denyer2019)
+arabidopsis	root	Quiescent_Center	AT1G55200	AT1G55200	type	expression	low		bryophyte	Enrichment-scored QC marker; protein kinase.	Shahan2022 (escoring)
+arabidopsis	root	Stem_Cell_Niche	AT3G20840	PLT1	type	function	medium			AP2 TF forming a stem-cell-niche gradient; broad, not QC-specific.	classic

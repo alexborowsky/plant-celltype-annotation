@@ -1,0 +1,17 @@
+Gene_Name	Gene_ID	Cell_Type
+CST1	Sobic.009G143500	Subsidiary_Cell
+LIGULELESS Sobic.006G247700	Ligule
+SbSLP1	Sobic.001G265900	Silica_Cell
+IRX1	Sobic.003G296400	Xylem
+XCP1	Sobic.009G008800	Xylem
+CESA7	Sobic.002G205500	Xylem
+SWEET13	Sobic.008G094400	Phloem_Parenchyma
+FTL12	Sobic.010G164200	Phloem
+PEAR2	Sobic.009G014400	Phloem
+SUT1	Sobic.001G488700	Phloem_Companion_cell
+CCR1	Sobic.007G141200	Schlerenchyma,Bundle_Sheath
+NADP-ME	Sobic.003G036200	Bundle_Sheath
+PPDK	Sobic.009G132900	Mesophyll
+WBC11	Sobic.006G155700	Epidermis
+Cation Antiporter 20 Sobic.009G015350	Guard_Cell
+CYP79A1	Sobic.001G012300	Trichome
