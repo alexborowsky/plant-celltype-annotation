@@ -81,8 +81,34 @@ CONDA_SH=~/miniconda3/etc/profile.d/conda.sh CONDA_ENV=scanpy bash ~/.claude/ski
 
 ## Sources
 
-The marker tables are built from published studies and cite them row by row
-(`basis` and `source` columns). The protoplasting stress list and the
-Arabidopsis root markers come from Shahan et al. 2022 (*Dev Cell*). The
-sorghum root markers come from Guillotin et al. 2023 (*Nature*).
-Check the original papers before relying on a marker.
+Every marker row cites its evidence in the `basis` and `source` columns:
+about 650 distinct DOIs in total. Check the original paper before relying on
+a marker.
+
+- **Literature survey (2026-10).** 394 published plant single-cell, single-
+  nucleus, spatial and sorted-population datasets across 69 species
+  (`references/atlas_catalog.tsv`). 116 of them were reviewed in depth: label
+  access, marker quality, validation, and problems such as states labeled as
+  types. The reviews are summarized per species × organ in
+  `references/atlases/`, and their markers make up the survey tables:
+  - `primary/`: 30 tables (2,402 rows) for well-supported species × organ
+    groups;
+  - `secondary/`: 25 tables (885 rows) for thinner groups.
+- **Characterized markers** (`characterized/`). 290 rows from reporter, in
+  situ and mutant studies, mostly outside single-cell data. They cover cell
+  types the atlases miss: root cap, QC, seed-coat layers, embryo sac,
+  sieve elements, nodule zones and laticifers.
+- **Curated core tables:**
+  - Arabidopsis leaf: function-based literature curation.
+  - Arabidopsis root: Shahan et al. 2022 *Dev Cell* curated markers
+    (ohlerlab/scKB, MIT), plus classic functional markers.
+  - Rice root: six single-cell datasets cross-checked against each other and
+    against the characterized genes they cite.
+  - Sorghum leaf: lab curation, cited row by row.
+  - Sorghum root: the conserved grass root markers from Guillotin et al.
+    2023 *Nature*.
+- **Protoplasting stress list:** Shahan et al. 2022 *Dev Cell*.
+
+The survey, reviews and table curation were done with Claude (Anthropic)
+and are being checked by hand. Some `basis` texts are still marked as
+pending review. Corrections are welcome as issues.
