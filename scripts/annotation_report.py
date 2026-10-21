@@ -198,6 +198,14 @@ def text_panel(ax, lines, width=40):
 
 # ----------------------------------------------------------------------------
 
+def skill_version():
+    """Skill version from the VERSION file next to scripts/ (shown in the report so outputs can be traced)."""
+    try:
+        return open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'VERSION')).read().strip()
+    except OSError:
+        return 'unknown'
+
+
 def marker_stats(M, found, mask):
     """Per-gene mean/frac inside vs outside mask."""
     def mean_frac(A):
@@ -395,7 +403,8 @@ def main():
         fig.text(0.06, 0.97, args.title or f'Cell-type annotation report: {os.path.basename(args.h5ad)}',
                  fontsize=11, fontweight='bold')
         fig.text(0.06, 0.955, f'{adata.n_obs:,} cells; annotation table {os.path.basename(args.annotations)}; '
-                 f'markers {", ".join(os.path.basename(m) for m in args.markers)}', fontsize=7)
+                 f'markers {", ".join(os.path.basename(m) for m in args.markers)}; '
+                 f'plant-celltype-annotation v{skill_version()}', fontsize=7)
         axt = fig.add_subplot(gs[1])
         axt.axis('off')
         for ct in cts:

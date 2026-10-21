@@ -1,6 +1,6 @@
 # plant-celltype-annotation
 
-> **In development.** This skill is being tested and changes often. Feedback is
+> **In development (v0.1.0, pre-release).** This skill is being tested and changes often. Feedback is
 > very welcome: please open an issue with what you ran (species, tissue, cells
 > or nuclei), what worked, and where the annotation or the instructions went
 > wrong.
@@ -59,11 +59,16 @@ The curated data isn't available in one place elsewhere:
 
 ## Install
 
-Clone into your Claude Code skills folder:
+Clone a release into your Claude Code skills folder (see
+[Releases](https://github.com/alexborowsky/plant-celltype-annotation/releases) and `CHANGELOG.md`):
 
 ```bash
-git clone https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
+git clone --branch v0.1.0 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
 ```
+
+Omit `--branch` to follow the latest development version on `main`. On claude.ai, upload the
+`plant-celltype-annotation-<version>.zip` attached to each release as a skill. When you report a problem,
+include the version (it is printed in the report header and stored in `VERSION`).
 
 Then ask Claude Code to annotate a clustered `.h5ad`. The skill loads when the
 request matches its description, or you can name it.
