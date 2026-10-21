@@ -35,9 +35,11 @@ as a label.
    marker that is both *specific* (enriched relative to other clusters) and
    *biologically sensible* for the tissue. Presence alone is not evidence:
    photosynthesis genes are detected nearly everywhere in green tissue.
-2. **`Unknown` is a valid answer.** Leave clusters unlabeled rather than
-   forcing a label. Low-quality, doublet-like, or treatment-only clusters
-   should be called out as such, not assigned to a cell type.
+2. **`Unknown` is a valid answer, but only after a follow-up.** Leave
+   clusters unlabeled rather than forcing a label. Before the report, though,
+   form and test hypotheses for every unlabeled cluster (Step 8b).
+   Low-quality, doublet-like, or treatment-only clusters should be called
+   out as such, not assigned to a cell type.
 3. **The user decides.** Present the proposed annotation table with an
    `Evidence` column and wait for approval before applying it to their main
    h5ad. Never overwrite the user's main h5ad unless they asked for that.
@@ -584,6 +586,58 @@ When looking for a rare type inside a cluster, add `--recompute-pca`
 (subset HVGs + PCA). It does not redo batch integration, so check the
 subclusters against sample.
 
+### 8b. Follow up on unlabeled clusters (required before Step 9b)
+
+Do this without being asked, for every cluster still `Unknown` after
+Steps 7–8, and always when Unknown holds more than ~10% of cells. Reference
+marker tables are built from model species and miss lineage- and
+organ-specific programs, so a large Unknown block usually means a known type
+with no marker in the tables, not a new type.
+
+1. **Write one or more hypotheses per cluster.** Draw them from:
+   - expected types (`expected_cell_types.tsv`) that have no cluster yet;
+   - the organ's function in this species: storage (inulin, starch, oil,
+     protein), specialized metabolism (latex, resins, alkaloids, glucosinolates),
+     symbiosis, or defense;
+   - the cluster's own top DE homologs, read as a program (transporters,
+     biosynthetic enzymes, cell-wall genes);
+   - where the cluster sits in `cluster_hierarchy.tsv` and on the UMAP
+     (which labeled neighbours it splits from).
+2. **Find marker genes for each hypothesis.** Prefer the pathway's
+   characterized enzymes or transporters from the same genus or family. Their
+   sequences are in UniProt, which the REST API serves without a key (check
+   that the node has network access):
+   ```bash
+   curl -s "https://rest.uniprot.org/uniprotkb/search?query=(taxonomy_id:<genus taxid>)+AND+(<enzyme name>)&fields=accession,protein_name,organism_name,length&format=tsv"
+   curl -s "https://rest.uniprot.org/uniprotkb/<ACC>.fasta" >> hypothesis_refs.fa
+   ```
+   Search them against the target proteome with DIAMOND (`--very-sensitive
+   -k 25`). Assign each target gene to the reference it matches best, so that
+   paralogs from the same family (invertase vs fructosyltransferase vs
+   exohydrolase) are separated. Write the genes as a small marker table with
+   `basis` and `source`.
+3. **Test the hypothesis in the data.** Score the genes per cluster with
+   `cluster_evidence.py`, or tabulate the fraction and mean per cluster.
+   Pathway enzymes of abundant products are often detected in most nuclei
+   everywhere, so judge them by **level**: a cluster with clearly higher mean
+   expression and no competing identity supports the hypothesis. The report
+   counts a marker as enriched when its mean is ≥ 1 log unit higher and at
+   least half the cells express it.
+4. **Label or keep `Unknown`.** Label the cluster when the evidence holds, at
+   lower confidence if it rests on level only. Otherwise keep `Unknown`, and
+   write the hypotheses you tested, and why they failed, in the Evidence
+   column.
+5. **Report what you did.** List the hypotheses, the genes and their
+   identity to the reference, and the result. Present this with the
+   annotation table.
+
+Example: in an Asteraceae storage root, a third of the nuclei were Unknown
+after the Arabidopsis root tables. The hypothesis was inulin storage
+parenchyma. 1-SST and 1-FFT from a congener were >95% identical to single
+target genes. Those genes were detected in most nuclei everywhere, but were
+highest in three Unknown clusters, which were then labeled storage
+parenchyma at medium-low confidence.
+
 ### 9. Apply and validate (`scripts/apply_annotations.py`)
 
 ```bash
@@ -623,8 +677,8 @@ python scripts/apply_annotations.py --h5ad data.h5ad --annotations CellTypeAnnot
 
 ### 9b. Build the evidence report (`scripts/annotation_report.py`)
 
-Always produce this after applying. It is the deliverable that shows *why*
-each label holds. Look at it: render pages with
+Always produce this after applying, and only after Step 8b. It is the
+deliverable that shows *why* each label holds. Look at it: render pages with
 `pdftoppm -png -r 60 report.pdf page` (poppler) and read the PNGs.
 
 ```bash
@@ -651,6 +705,10 @@ Markers per page:
   confidence, then evidence tier, among markers actually enriched in the
   cell type. So a page shows at least one high-quality marker, or the 2–3
   best weaker ones when that is all there is.
+- A marker counts as enriched by a clear mean gap with a detection ratio
+  ≥ 1.5, by a detection ratio ≥ 3 for sparse markers, or by a mean gap
+  ≥ 1 log unit in at least half the cells for abundant genes detected
+  everywhere.
 - Markers from the tables that are *not* enriched are listed, because
   contradicting evidence must stay visible.
 - With no enriched marker, the page falls back to top DE genes, labeled as

@@ -74,6 +74,8 @@ BACKGROUND = '#C8C8C8'  # other cells / clusters
 ITO = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442']
 SPARSE_RATIO = 3.0      # detection ratio (in/out) for the sparse-marker route
 SPARSE_MIN_FRAC = 0.02  # ...with at least 2% of the cell type expressing
+STRONG_DELTA = 1.0      # level route: a >= 1 log-unit (~2.7x) mean gap for genes detected nearly everywhere
+STRONG_MIN_FRAC = 0.5   # ...with at least half of the cell type expressing
 CONF = {'high': 2, 'medium': 1, 'low': 0}
 TIER = {'function': 2, 'characterized_enriched': 1, 'expression': 0}
 
@@ -229,11 +231,14 @@ def select_markers(cand, stats, n_max, min_delta, min_frac_ratio):
     c = cand.merge(stats, on='gene_id', how='inner')
     c['delta'] = c['mean_in'] - c['mean_out']
     c['ratio'] = c['frac_in'] / np.maximum(c['frac_out'], 0.001)
-    # Two routes to "enriched": a clear expression gap, or a strong detection ratio for sparsely
+    # Routes to "enriched": a clear expression gap, or a strong detection ratio for sparsely
     # captured regulators/channels (tomato guard cells: FAMA 12% vs 0.0%, SLAC1 3.6% vs 0.0%;
     # mean gaps only 0.06-0.18). The detection floor keeps noise-level genes out.
     c['enriched'] = (((c['delta'] >= min_delta) & (c['ratio'] >= min_frac_ratio))
-                     | ((c['ratio'] >= SPARSE_RATIO) & (c['frac_in'] >= SPARSE_MIN_FRAC)))
+                     | ((c['ratio'] >= SPARSE_RATIO) & (c['frac_in'] >= SPARSE_MIN_FRAC))
+                     # Third route: abundant genes detected in most nuclei everywhere (ambient-rich nuclei data),
+                     # enriched by level only (an inulin enzyme in 94% vs 70% of nuclei, mean 3.5 vs 2.0).
+                     | ((c['delta'] >= STRONG_DELTA) & (c['frac_in'] >= STRONG_MIN_FRAC)))
     c['q_conf'] = c['confidence'].map(CONF).fillna(0)
     c['q_tier'] = c['evidence'].map(TIER).fillna(0)
     c['q_match'] = (c['match'] == 'exact').astype(int)
@@ -331,6 +336,10 @@ def main():
     if qc_cts:
         print(f'  QC classes (listed on the overview, no page): {qc_cts}')
     cts = [c for c in cts if c not in qc_cts]
+    # Most abundant cell type first (overview table, pages, dotplot), not alphabetical
+    n_by = pd.Series(labels).value_counts()
+    cts = sorted(cts, key=lambda c: (-n_by.get(c, 0), natural_key(c)))
+    qc_cts = sorted(qc_cts, key=lambda c: (-n_by.get(c, 0), natural_key(c)))
     Mk, mk_found = gene_matrix(adata, X, var_names, markers['gene_id'])
     Mk = Mk.tocsr() if sparse.issparse(Mk) else Mk
     col = {g: i for i, g in enumerate(mk_found)}
@@ -510,6 +519,10 @@ def main():
                                    obs=adata.obs.loc[keep, [args.key]].copy(),
                                    var=pd.DataFrame(index=[label[g] for g in found]))
                 small.obs[args.key] = small.obs[args.key].cat.remove_unused_categories()
+                present = set(small.obs[args.key].cat.categories)
+                small.obs[args.key] = small.obs[args.key].cat.reorder_categories(
+                    [c for c in cts + qc_cts if c in present] + [c for c in small.obs[args.key].cat.categories
+                                                                 if c not in set(cts + qc_cts)])
                 groups = {ct: [label[g] for g, _ in pairs if g in found] for ct, pairs in shown_all.items()}
                 groups = {k: list(dict.fromkeys(v)) for k, v in groups.items() if v}
                 dp = sc.pl.dotplot(small, groups, groupby=args.key, standard_scale='var', cmap='viridis',
