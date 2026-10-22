@@ -83,6 +83,7 @@ For these types, the skill's arabidopsis_leaf, arabidopsis_root, rice_root and s
 
 Use **DemesaArevalo2026**, since it is the only dataset.
 - Import the integrated per-cell labels (`vSAM_D2-1_res1.3_per_cell_labels.tsv`, `edgar_` prefix stripped) only for **tunica → Epidermis** and **leaf primordia → Lateral_Organ_Primordium**.
+  - Source (BARVISTA, URLs checked 2026-10-22): per-cell clusters https://www.plabipd.de/projects/hannah_demo/BARVISTA/src/resolve_D2-1/clusters_resolutions/clusters_1.3.tsv (columns `id` = cluster number, `ident` = cell: `edgar_C<n>` scRNA, `MC_Cell...` spatial) and the name key https://www.plabipd.de/projects/hannah_demo/BARVISTA/src/resolve_D2-1/labels/res1.3_cluster_names_curated.csv (`cluster`, `new_names`, plus an unnamed note column). Join on cluster number. The same files are in the ARC (https://git.nfdi4plants.org/usadellab/Barvista_ARC, `runs/r_clustering/resolve_D2-1`); fetch ARC files with `/-/raw/main/<path>`, because the GitLab API `repository/files/.../raw` returns a Git-LFS pointer. `resolve_D2-1_v2` is a different re-clustering with different cell IDs; do not mix them.
 - Use "meristem corpus" as Shoot_Meristem with care.
 - Treat "G2 phase" as primordium epidermis.
 - Use "vasculature" and "intercalary meristem" as hypotheses only.

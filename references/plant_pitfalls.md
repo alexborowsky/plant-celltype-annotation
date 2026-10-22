@@ -76,6 +76,13 @@
 | LHY/CCA1/TOC1/PRRs | Circadian phase | Don't use as type markers; harvest-time confound |
 | HSPs, wound/ethylene genes, ERFs | Protoplasting / dissociation stress | Common in protoplast scRNA and weaker in snRNA; not a type |
 
+- **Developmental cell death looks like senescence.** Tracheary elements
+  (and tapetum, root cap, nucellus) die by programmed cell death using
+  papain-like cysteine proteases (XCP1/2, RD21, CEP1), MC9-type metacaspases
+  and nucleases (BFN1). Next to a procambium or vascular cluster this
+  program means *differentiating xylem*. Senescence needs SAG12, chlorophyll
+  breakdown and falling photosynthesis in an old organ.
+
 ## Composition and batch
 - A cluster in which >80% of cells come from one sample, or a treatment
   enrichment of more than 2×, is usually batch, a treatment response, or
@@ -119,6 +126,16 @@
   form. Leafy liverworts (e.g. *Calypogeia*) have leaves and underleaves
   but no air chambers; thalloid ones (*Marchantia*) have air pores and
   photosynthetic filaments.
+
+- **Filtered gene lists hide markers.** Objects often keep only genes seen
+  in ≥ N cells, or carry thousands of all-zero genes. A marker missing from
+  `var_names` or with zero counts is *not measurable*, not absent; the
+  evidence script lists them by cell type. Ask for the unfiltered matrix
+  before calling a type absent.
+- **No organelle contigs, no organellar QC?** Some assemblies lack the
+  plastid/mitochondrial genomes. Look for expressed nuclear insertions of
+  organellar genes (NUMTs/NUPTs: nad, cox, atp, rps blocks on one contig)
+  and use them as a proxy, or skip organellar QC and say so.
 
 ## Resolution choice
 - Rare types (guard, xylem, companion cells, trichome) often appear only at

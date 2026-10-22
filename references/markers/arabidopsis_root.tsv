@@ -49,4 +49,4 @@ arabidopsis	root	Pericycle	AT1G11330	RDA2	type	expression	low		bryophyte	Enrichm
 arabidopsis	root	Quiescent_Center	AT3G11260	WOX5	type	function	high		bryophyte	Homeobox TF expressed in QC that maintains columella stem cells.	classic
 arabidopsis	root	Quiescent_Center	AT3G26120	TEL1	type	characterized_enriched	low		bryophyte	TERMINAL EAR1-like RNA-binding protein; QC-enriched.	Shahan2022 (Denyer2019)
 arabidopsis	root	Quiescent_Center	AT1G55200	AT1G55200	type	expression	low		bryophyte	Enrichment-scored QC marker; protein kinase.	Shahan2022 (escoring)
-arabidopsis	root	Stem_Cell_Niche	AT3G20840	PLT1	type	function	medium			AP2 TF forming a stem-cell-niche gradient; broad, not QC-specific.	classic
+arabidopsis	root	Stem_Cell_Niche	AT3G20840	PLT1	type	function	medium		bryophyte	AP2 TF forming a stem-cell-niche gradient; broad, not QC-specific.	classic

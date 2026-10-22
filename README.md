@@ -1,6 +1,6 @@
 # plant-celltype-annotation
 
-> **In development (v0.1.1, pre-release).** This skill is being tested and changes often. Feedback is
+> **In development (v0.2.0, pre-release).** This skill is being tested and changes often. Feedback is
 > very welcome: please open an issue with what you ran (species, tissue, cells
 > or nuclei), what worked, and where the annotation or the instructions went
 > wrong.
@@ -43,6 +43,9 @@ The curated data isn't available in one place elsewhere:
   - `subcluster.py`;
   - `apply_annotations.py`;
   - `annotation_report.py`;
+  - `check_genes.py`: gene-level checks by symbol or ID through the gene maps;
+  - `score_gene_sets.py`: scores labels published only per cluster;
+  - `fetch_reference.sh`: downloads and builds a reference proteome hub;
   - `lineage_tags.py`.
 - `references/markers/`: marker tables with evidence tiers (`function`,
   `characterized_enriched`, `expression`) and lineage tags (C3/C4, grass,
@@ -53,6 +56,11 @@ The curated data isn't available in one place elsewhere:
 - `references/atlas_catalog.tsv` and `references/atlases/`: a catalog of ~390
   published plant single-cell and spatial datasets, with reviews of the main
   atlases.
+- `references/proteomes.tsv`: reference proteome hubs (Arabidopsis, rice,
+  maize, sorghum, wheat, barley, tomato, soybean, medicago, bryophytes…)
+  whose gene IDs match the marker tables, with measured match rates.
+- `references/annotation/`: Arabidopsis gene symbols and a rice MSU7 ↔ RAP-DB
+  map; `references/markers/celltype_aliases.tsv`: synonymous cell-type names.
 - `references/plant_pitfalls.md`: homology traps, ambient RNA, doublets,
   states vs types, and lineage-specific anatomy.
 - `tests/`: a synthetic smoke test of the whole script chain.
@@ -63,7 +71,7 @@ Clone a release into your Claude Code skills folder (see
 [Releases](https://github.com/alexborowsky/plant-celltype-annotation/releases) and `CHANGELOG.md`):
 
 ```bash
-git clone --branch v0.1.1 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
+git clone --branch v0.2.0 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
 ```
 
 Omit `--branch` to follow the latest development version on `main`. On claude.ai, upload the
@@ -99,7 +107,7 @@ a marker.
   - `primary/`: 30 tables (2,402 rows) for well-supported species × organ
     groups;
   - `secondary/`: 25 tables (885 rows) for thinner groups.
-- **Characterized markers** (`characterized/`). 290 rows from reporter, in
+- **Characterized markers** (`characterized/`). 300 rows from reporter, in
   situ and mutant studies, mostly outside single-cell data. They cover cell
   types the atlases miss: root cap, QC, seed-coat layers, embryo sac,
   sieve elements, nodule zones and laticifers.

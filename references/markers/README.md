@@ -39,7 +39,7 @@ That rule removed the Nb-derived picks (MPK20, MLP31, SAH7, FLA11, …) on
 
 ### Trait vocabulary
 
-`eudicot monocot grass C3 C4 Brassicales Brassicaceae Solanaceae Sorghum Oryza Fabaceae Gossypium Rosaceae Apocynaceae Cucurbitaceae Capsicum gymnosperm conifer bryophyte moss liverwort hornwort lycophyte`
+`eudicot monocot grass C3 C4 Brassicales Brassicaceae Solanaceae Sorghum Oryza Fabaceae Gossypium Rosaceae Apocynaceae Cucurbitaceae Capsicum gymnosperm conifer bryophyte moss liverwort hornwort lycophyte fern angiosperm tracheophyte magnoliid Triticeae Euphorbiaceae Phaseoleae`
 
 Implications: `Sorghum` → `grass C4`; `Oryza` → `grass C3`; `Brassicaceae` → `Brassicales eudicot`; `grass` → `monocot`;
 `Brassicaceae`/`Solanaceae` → `eudicot`; `liverwort`/`moss`/`hornwort` → `bryophyte`. Add new tags (a family or a
@@ -54,19 +54,23 @@ Typical uses:
 - `requires=eudicot`: position-dependent root epidermal patterning (GL2,
   TTG2) and trichome genes. Grass root epidermis is patterned by asymmetric
   division instead.
-- `excludes=bryophyte`: vascular, root, stomatal, hydathode, periderm,
-  axillary/shoot-apical meristem, flower and seed cell types.
+- Lineage exclusions written by `scripts/lineage_tags.py` (three ordered groups):
+  - angiosperm-only (`excludes=bryophyte,lycophyte,fern,gymnosperm`): flowers,
+    anther wall, fruit, endosperm, female gametophyte, seed coat, companion cells;
+  - seed-plant (`excludes=bryophyte,lycophyte,fern`): SAM zones, meristem
+    epidermis, axillary meristem, cambium/periderm, ovule, pollen, sperm, embryo, seed;
+  - vascular-plant (`excludes=bryophyte`): vascular, root and stomatal types, shoot
+    meristem, primordia, organ boundary, stem-cell niche, pavement, trichome, tapetum.
+  Epidermis, protoderm and cell-cycle states are left untagged.
 - `excludes=monocot,gymnosperm,bryophyte`: eudicot-only types from eudicot
   tables (palisade/spongy mesophyll, adaxial/abaxial epidermis, GL1/GL2/TTG
   trichome patterning).
 - `requires=Brassicaceae`: Arabidopsis SULTR2;1 (xylem parenchyma) and
-  SULTR2;2 (bundle sheath). The family marks vascular bundles in every
-  species, but which copy marks which type is not conserved (rice SULTR2;1 is
-  bundle sheath).
+  SULTR2;2 (bundle sheath); see the SULTR2 pitfall.
 
-`scripts/lineage_tags.py` adds the `excludes=bryophyte`, eudicot-only and
-SULTR2 tags; `survey/sync_to_skill.py` runs it on the survey tables. It is
-idempotent and skips rows that already carry a lineage tag.
+`scripts/lineage_tags.py` only adds tags, never tags a species against its own
+lineage, and must be run on **all** tables after rows are added
+(`tests/test_lineage_tags.py` checks; `survey/sync_to_skill.py` runs it).
 
 ## Tables
 
@@ -82,17 +86,25 @@ idempotent and skips rows that already carry a lineage tag.
 
 ## Characterized markers (`characterized/`)
 
-290 markers from characterization studies, not single-cell atlases:
+300 markers from characterization studies, not single-cell atlases:
 promoter-reporter, translational fusion, in situ, mutant phenotype, and
 sorted-cell or microdissection profiling. They were collected (2026-10) to
 fill cell types that had no `function` marker in the atlas tables, such as
 root cap, QC, seed-coat layers, embryo-sac cells, bundle sheath, hydathode,
 sieve elements and companion cells, endosperm domains, and nodule zones.
 
-- One table per species with at least 5 rows (`arabidopsis` 152, `rice` 34,
-  `maize` 31, `marchantia` 14, `medicago` 11, `soybean` 10, `tomato` 9,
-  `barley` 6, `brachypodium` 6), plus `other_species.tsv` (17 rows: Lotus,
-  Phaseolus, Catharanthus, Hevea, pea, Populus, sorghum, wheat).
+- One table per species with at least 5 rows (`arabidopsis` 157, `rice` 34,
+  `maize` 31, `marchantia` 15, `medicago` 11, `soybean` 10, `tomato` 9,
+  `barley` 6, `brachypodium` 6), plus `other_species.tsv` (21 rows: Lotus,
+  Phaseolus, Catharanthus, Hevea, pea, Populus, sorghum, wheat, Physcomitrium).
+- Added 2026-10-22 (IDs checked in Araport11/MarpolBase/Ensembl Plants, DOIs in
+  Europe PMC): xylem cell-death markers XCP1, XCP2, MC9 (`function`), BFN1
+  and RNS3 (`characterized_enriched`, low) as `Xylem`; MpLRL (`Rhizoid`, low);
+  PpRSL1/PpRSL2 (`Rhizoid` and `Caulonema`, `requires=moss`). The PCD genes
+  are shared with tapetum, root cap, senescence (BFN1) and other
+  developmental cell death, so they mark xylem only next to vascular markers
+  (VND6/7, CESA4/7/8); a PCD programme near vascular clusters points to
+  differentiating tracheary elements, not senescence.
 - Every row had its gene ID and DOI checked by the search agent (gene ID in
   UniProt or the organism database; DOI in Europe PMC). The 13 rows that
   failed either check were left out; they are in the Oak survey folder.
@@ -130,8 +142,9 @@ datasets with little validation, so treat their calls as hypotheses.
   re-verified. Some agents added literature genes beyond the reviews.
   `n_cross_study` and cross-study confidence raises were defined per agent.
 - **Cell-type names** are not harmonized across groups (222 names, some
-  synonymous, e.g. Vascular / Vasculature / Vascular_Bundle). The evidence
-  report matches related names by tokens; use `--alias` otherwise.
+  synonymous, e.g. Vascular / Vasculature / Vascular_Bundle). True synonyms
+  are merged by `celltype_aliases.tsv` (below); the evidence report matches
+  other related names by tokens; use `--alias` otherwise.
 - **Extra columns:** `alt_id` = the same gene in a second ID system (use
   `--id-column alt_id`); `other_ids` = multi-species or non-gene IDs (UniProt,
   orthologs in relatives), for reference only.
@@ -213,6 +226,50 @@ Trait tags added for these tables (in `map_markers.py` IMPLIES): `Fabaceae`,
 `moss`, `gymnosperm`, `liverwort` or `lycophyte` apply only when passed in
 `--target-traits`. `Brassicales` (implies `eudicot`; implied by
 `Brassicaceae`) covers glucosinolate/myrosinase rows such as TGG1.
+
+## Cell-type aliases (`celltype_aliases.tsv`)
+
+`alias  canonical  note`, one row per synonym (37 rows). Names with the same
+canonical name count as one cell type: `annotation_report.py` treats alias
+markers as markers of the type itself, and `map_markers.py` does not warn
+when one gene is listed under two names that are aliases. Matching is
+case-insensitive and one level deep (an alias maps straight to its
+canonical name).
+
+- Only true synonyms: spelling and case variants (Stomatal_Lineage,
+  Protodermal), abbreviations (LRC, QC, SAM, G2_M), published-label spellings
+  (Root_Hair/Non_Hair, Companion_Cell, Guard_Cell), and names for the same
+  cell population in different tables (Seed_Coat_Endothelium = Endothelium,
+  Phloem_Idioblast = Myrosin_Idioblast, Outer_Integument_2 =
+  Seed_Coat_Outer_Epidermis, Arabidopsis border-like cells = Border_Cell).
+- Parent/child pairs are **not** aliases (Columella vs Root_Cap, Xylem vs
+  Xylem_Parenchyma, Protophloem_Sieve_Element vs Sieve_Element, numbered
+  substates such as Cortex_1). Use `--alias` for a one-off grouping.
+- Canonical names are the most common spelling in the tables. When a new
+  table introduces a synonym, add a row here instead of renaming the table.
+
+## Gene annotation tables (`../annotation/`)
+
+Lookup tables for symbols and ID conversion (not marker tables). Use them to
+show symbols in reports and DE tables and to convert rice IDs.
+
+| File | Rows | Columns | Source |
+|---|---|---|---|
+| `araport11_genes.tsv.gz` | 27,653 loci (protein-coding, incl. 208 ATCG/ATMG) | `gene_id symbol description aliases` | Araport11 protein BLAST db headers (all symbols, full names) + Ensembl Plants release 63 TAIR10 pep `gene_symbol` (one primary symbol per locus) |
+| `rice_msu_rap.tsv.gz` | 56,939 pairs (55,801 MSU, 33,580 RAP loci) | `msu_id rap_id` | RAP-DB `RAP-MSU_2026-02-05.txt.gz` (https://rapdb.dna.naro.go.jp/download/archive/) |
+
+- `symbol` is TAIR's primary symbol, so some differ from common usage (FAMA
+  is `FMA`, with FAMA in `description`); `aliases` lists every Araport11
+  symbol. "No symbol available" placeholders are empty.
+- Rice: one row per MSU-RAP pair; transcript suffixes removed, comma lists
+  split, loci without a counterpart dropped. The mapping is many-to-many, so
+  do not assume 1:1. All 313 `ref_gene`/`alt_id` pairs in the rice marker
+  tables agree with it.
+- To refresh: dump the headers with `blastdbcmd -db <Araport11_db> -entry all`
+  (or use the TAIR/Ensembl pep FASTA) and take the newest
+  `RAP-MSU_<date>.txt.gz` (release dates are on RAP-DB `news.html`; the old
+  `rapdb.dna.affrc.go.jp` host returns 403). The build script is in the Oak
+  resources folder (`annotation_tables/build_annot.py`).
 
 ## Adding a table
 

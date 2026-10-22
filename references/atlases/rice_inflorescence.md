@@ -44,13 +44,19 @@ Rows are canonical names (marker-table names). "-" means the dataset has no labe
 | Epidermis | Revise: meristem subcluster 7 (ROC genes; chitin-response terms) | Revise: "Epidermis" (hull + B-class organ epidermis merged) |
 | Lodicule | - | Revise: "Lodicule" (13%; defense genes, no B-class MADS) |
 | Stamen (B-class organ) | - | Revise: "Filament" (in situ stains locule contents; B-class MADS) and "Stamen" SP4 (PR3 chitinase probe; ED Fig 8c calls it "Stigma") |
-| Tapetum | - | **Adopt** (TDR, EAT1, OsC6, RTS, RAFTIN1; in situ at SP6 and SP8) |
-| Meiocyte | - | Revise: "Pollen mother cell" = anther locule cells (no meiosis genes) |
+| Tapetum | - | **Adopt at SP8 only** (TDR, EAT1, OsC6, RTS, RAFTIN1; SP8 DE). The paper's SP6 tapetum is not found in the GEO SP3-SP6 nuclei: all five genes <=2.5% in every cluster (skill test L3, 2026-10-22; Wang's SP6 may be earlier than Ikeda Sp6) |
+| Meiocyte | - | Revise: "Pollen mother cell" = anther locule cells (no meiosis genes; MEL1/PAIR1 0-3% in SP3-SP6, L3) |
 | Carpel / Ovule | - | Revise: "Stigmata/Stigma" = carpel with ovule genes (DL, OsMADS58, OsMADS13) |
 | Ovary_Wall | - | Revise: "Ovary wall" (identity uncertain) |
 | Ground_Tissue / axis | Revise: "Rachis" (organ label); Reject: "SSC" (spikelet supporting cells, no anatomical counterpart) | - |
 | Vascular | - (inside Rachis) | **Reject**: "Vascular" = defense/PR state |
 | Other | Revise: "Spikelet" (organ label); Reject: "SIC" (spikelet identity cells, a state) | Adopt as unknown: "Panicle unknown" |
+
+Verdicts are desk review (probe and DE reading); re-check in data. A per-nucleus test on the GEO SP3/SP4/SP6 object (skill test L3, 2026-10-22) confirmed the Ovule, Vascular, Stamen, Lodicule and Floral-meristem doubts, and found:
+- **No tapetum or meiocyte programme at SP3-SP6** (see the Tapetum row). Do not expect tapetum before SP8 in these data.
+- **The Palea probe OsCP1 (Os11g0255300) marks a cysteine-protease cluster present at all stages** (65% vs 17%). Its programme (MC9-like metacaspase MCP2f, XCP-family papain-like proteases, VNI2) and its kNN neighbours (procambium, VND/SND2 homologs) point to differentiating xylem undergoing PCD, not palea and not senescence (user review). Rice XCP homologs are sparse (<=3%), so a xylem marker set may not score; check the PCD genes directly.
+- SP6 forms a stage island that Harmony did not integrate, with ambient chloroplast RNA (psbA in 54-83% of SP6 nuclei). Subcluster it separately.
+- A JA/wound programme (TIFY10C 77-85%) defines about 9% of nuclei: a dissection response state.
 
 No type is labelled in both datasets with agreeing evidence. The same name points to different things in the two studies: Zong's "spikelet identity cells" are a rejected state label, while Wang's "spikelet identity cells" are a bract/glume-like cluster that only reuses a Zong marker (KCS4).
 
@@ -92,7 +98,9 @@ For Phloem and Xylem, `rice_root.tsv` has OsSUT1 and OsCESA4 (`function`, root c
 
 ## Recommended label reference
 
-- **Wang2025 SP8 portal labels, Tapetum only**, as an adoptable per-cell reference (`Wang2025/panicle_SP8_portal_labels.tsv`). Relabel "Stigmata" to Carpel and treat "Epidermis"/"Filament" as B-class organ/epidermis hypotheses. Do not use "Ovule", "Vascular" or "Lodicule".
+- **Wang2025 SP8 portal labels, Tapetum only (SP8 stage only)**, as an adoptable per-cell reference (`Wang2025/panicle_SP8_portal_labels.tsv`). Relabel "Stigmata" to Carpel and treat "Epidermis"/"Filament" as B-class organ/epidermis hypotheses. Do not use "Ovule", "Vascular" or "Lodicule".
+  - Source: the portal Plotly page http://www.elabcaas.cn/scmr/tissues/tissue_umap/scmr.sp.umap.scatter.html (one Plotly trace per label; each point's `text` is `SP-<label>-<barcode>`, with x/y = UMAP; URL checked 2026-10-22). Barcodes are bare 16-mers with no replicate tag; 100 occur twice (88 with different labels), so drop duplicates before joining.
+- **Gene IDs:** paper tables use MSU7, the portal DE plots use RAP-DB. Convert with the skill's `references/annotation/rice_msu_rap.tsv.gz` (from RAP-DB's RAP-MSU file); the Oryzabase list cited below is in the survey folder only.
 - **Zong2022 has no usable per-cell labels.** Use its GEO RAP-ID matrices (11-22 MB each) for de novo annotation of early stages with this marker table. Use the flag-leaf library (L) as a negative/contamination reference, and screen meristem/FM clusters for Dividing_cells/S_Phase first. scPlantDB's 7-label re-annotation is a coarse third-party cross-check only.
 - For IM-to-FM stages, neither dataset gives reference labels. Rely on the function markers (LOG, OSH1, TAW1, OsMADS34, DWT1, TOB1, G1, OsMADS1, REP1, OsMADS6).
 - Once reviewed, Jing2026 may become the better reference: its portal has per-cell labels for inflorescence, spikelet, stamen and pistil, including spatial data. Its curated marker list partly reuses Zong2022 markers (source 10.1111/nph.18008), so it will not be independent of Zong for meristem and bract types.

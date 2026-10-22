@@ -120,19 +120,30 @@ One new dataset was reviewed (`Yang2025/README.md`) and merged into `markers_dra
 
 ### Verdicts (Yang 2025)
 
+Desk review from the authors' pseudobulk table; re-check in data. The per-cell check in the skill test (below) corrected the QC, Root cap and Root epidermis rows.
+
 | Published label | n (%) | Verdict | Maps to |
 |---|---|---|---|
 | Phloem | 180 (2.3) | Adopt | Phloem (SE and CC not split) |
 | Root stele | 1144 (14.4) | Revise | Stele (contains xylem, pericycle and procambium) |
 | Root cortex | 778 (9.8) | Revise | Cortex (layers merged; no exodermis or endodermis markers in any cluster) |
-| Root epidermis | 401 (5.1) | Revise | unresolved (defence-gene profile; SlPLT3, SlFEZ, SlARF10A and SlPT1 peak here) |
-| Root cap | 899 (11.4) | Revise (hypothesis) | Root_Cap? (authors call it putative) |
+| Root epidermis | 401 (5.1) | Revise | mostly Root_Cap (SMB 21% vs ~0, BRN1 18%, FEZ 14%), plus a small PLT1+ stem-cell-niche-like subcluster; no ATML1/PDF2 anywhere (in-data check, 2026-10-22) |
+| Root cap | 899 (11.4) | Reject (in-data check, 2026-10-22) | not cap: SMB/BRN/FEZ ~0; a JA/oxylipin programme (OPR3 91%) over ground tissue |
 | Protoxylem | 881 (11.1) | Reject | unresolved (no xylem markers) |
 | Root hair | 797 (10.1) | Reject | - (SlEXT1/Dif54/Dif10 ~0 everywhere) |
 | Non-hair | 624 (7.9) | Reject | - |
 | Lateral root cap | 591 (7.5) | Reject (state) | Protoplasting_stress (heat-shock) |
-| QC | 210 (2.7) | Reject (state) | Dividing_cells |
+| QC | 210 (2.7) | Reject (mixed) | about 88 cells Dividing_cells; about 105 cells a separate non-dividing glyoxylate-cycle cluster (ICL 98% vs 30%), identity unresolved. WOX5 0. (In-data check, 2026-10-22) |
 | Unknown_1, Unknown_8 | 926 + 489 | Reject (unassigned) | - (left unlabelled by the authors, correctly) |
+
+### In-data check (skill test L1, 2026-10-22)
+
+Per-cell re-test of the verdicts above in the Yang object. One agent run; desk review of that run, re-check in data.
+- The authors' >=4,000-gene cap removed 23% of cells (2,443), concentrated in dividing (58%), xylem (58%) and cap (41%) clusters; they are not doublets (Scrublet). Re-filter from the 10x matrix if these types matter.
+- Endodermis is present (46 cells; SlCASP1 91% vs 2-6%, SlMYB36 57% vs 0%), diluted inside larger published clusters, so the pseudobulk "~0 everywhere" (caveat 3) was wrong.
+- A real xylem cluster exists (31 cells; CESA7 100% vs <=4%, VND7, XCP1), mostly among the cells the authors removed.
+- UP1261-X1 (Solyc03g083010, the authors' in situ cap gene) is detected in 35-77% of cells in every cluster: ambient-prone, not a usable Root_Cap marker.
+- No epidermis or exodermis signal anywhere (capture or immaturity).
 
 ### Markers raised or updated
 
@@ -173,7 +184,7 @@ Not carried: **LEA3 (Solyc09g075210)**. The authors' in situ shows a stele gradi
 
 ### Recommended label reference (unchanged)
 
-**Canto-Pastor 2024 remains the label reference** for tomato primary root tips. Yang 2025 is the only tomato root dataset with public per-cell labels, but most of its labels are rejected or revised, and it comes from adventitious roots in a single library. Use its labels only for **Phloem** (Adopt) and coarse **Stele**. Map its "QC" to Dividing_cells and its "Lateral root cap" to Protoplasting_stress. Its pseudobulk table is a useful third check for phloem and stele markers.
+**Canto-Pastor 2024 remains the label reference** for tomato primary root tips. Yang 2025 is the only tomato root dataset with public per-cell labels, but most of its labels are rejected or revised, and it comes from adventitious roots in a single library. Use its labels only for **Phloem** (Adopt) and coarse **Stele**. Its "QC" is only half dividing cells (see the in-data check); map its "Lateral root cap" to Protoplasting_stress. Its pseudobulk table is a useful third check for phloem and stele markers.
 
 ### Could not verify (Yang 2025)
 

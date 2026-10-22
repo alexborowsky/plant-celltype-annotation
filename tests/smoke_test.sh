@@ -83,6 +83,18 @@ python "$S/annotation_report.py" --h5ad annotated.h5ad --annotations CellTypeAnn
     --markers markers_rice.tsv --output annotation_qc/annotation_report.pdf | tail -3
 ls -la annotation_qc/annotation_report.pdf
 
+step "7b. gene checks, published gene sets, report with extra genes"
+mkdir -p checks
+python "$S/check_genes.py" --h5ad annotated.h5ad --cluster-key leiden_res0.8 --genes OsCSLD1,OsRHL1 NOPE \
+    --marker-tables markers_rice.tsv --out checks/genes.tsv | tail -4
+awk -F'\t' 'NR>1{print $3"\t"$1}' markers_rice.tsv | sed '1i set_name\tgene_id' > sets.tsv
+python "$S/score_gene_sets.py" --h5ad annotated.h5ad --cluster-key leiden_res0.8 --sets sets.tsv --out checks/sets | tail -3
+python "$S/annotation_report.py" --h5ad annotated.h5ad --annotations CellTypeAnnotations.txt \
+    --markers markers_rice.tsv --extra-genes Xylem=OsCSLD1 --output annotation_qc/report_extra.pdf | tail -2
+
+step "7c. lineage tags on the shipped marker tables"
+python "$SKILL/tests/test_lineage_tags.py" | tail -2
+
 step "8. accuracy vs truth"
 python - <<'EOF'
 import scanpy as sc

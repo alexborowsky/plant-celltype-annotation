@@ -7,7 +7,7 @@ Date: 2026-10-20. Built from one dataset review (`Zhang2025/`, which has its own
 Files:
 - `expected_cell_types.tsv`: 29 expected types (31 after the update below adds the Hilum and Seed_Coat_Vasculature umbrellas) for the whole seed (seed coat + endosperm + embryo), globular to mid-maturation. Written from soybean seed anatomy, not from the published labels. `function_markers` counts `function` rows in the existing skill tables (`references/markers/`) that would reach a eudicot target via homology (almost all from the Arabidopsis tables). `notes` gives the counts in the draft below.
 - `markers_draft.tsv`: 35 rows in the skill marker schema plus `alt_id` (70 rows after the 2026-10-20 update below). `ref_species = soybean`, `tissue = seed` (a new value; the skill README lists only leaf/root/any). `ref_gene` holds Wm82.a4.v1 `Glyma.` IDs, `alt_id` the UniProt accession (and the Wm82.a1 ID for Gy4). Field counts were checked (13 per line); there are no duplicate gene IDs.
-- `requires=Fabaceae` is a **new trait tag** used on 6 rows: legume storage-protein genes (KTi3, KTi1, CG-1, Gy4), hourglass cells (Ep) and hilum (F3'H). It must be added to `IMPLIES` in `map_markers.py` (`Fabaceae` -> `eudicot`) before the table goes into the skill. `requires=eudicot` is on the 4 seed-coat parenchyma and epidermis rows.
+- `requires=Fabaceae` is used on 6 rows: legume storage-protein genes (KTi3, KTi1, CG-1, Gy4), hourglass cells (Ep) and hilum (F3'H). The tag is in the skill vocabulary (`Fabaceae` -> `eudicot` in `map_markers.py` IMPLIES). `requires=eudicot` is on the 4 seed-coat parenchyma and epidermis rows.
 
 ## Datasets
 
@@ -92,7 +92,7 @@ There is no soybean (or other legume) table in `references/markers/`, so no row 
 - Glyma.17G232205 (GmKNAT1) is a Wm82.a4-only locus: absent from UniProt (taxonomy 3847) and NCBI Gene. Kept as `low`; check it exists in the dataset's annotation.
 - Wm82.a2 vs a4 ID identity is assumed for the other loci (UniProt matches a2-style `GLYMA_` names); not checked against the Phytozome a2-a4 crosswalk.
 - Primary papers were not re-read beyond Crossref/Europe PMC metadata and abstracts: Wyatt et al. 1992 (PRP1 localization), Gijzen et al. 1997 (Ep in hourglass cells), Wang 2019 and 2020 (SWEETs), Pelletier 2017 (LEC1). Their claims come from the review and Zhang 2025 Table S2.
-- Zhang 2025 figures (Fig 2C-F, S4) were not viewed; spatial claims come from the text and Table S2 de novo lists. PMC supplementary links are behind a reCAPTCHA (not bypassed); mmc1/mmc2 came from the Elsevier CDN.
+- Zhang 2025 figures (Fig 2C-F, S4) were not viewed; spatial claims come from the text and Table S2 de novo lists. PMC supplementary links are behind a reCAPTCHA (not bypassed); mmc1/mmc2 came from the Elsevier CDN: https://ars.els-cdn.com/content/image/1-s2.0-S009286742401273X-mmc1.xlsx (Table S1, 41.8 MB, all tissues; URL checked 2026-10-22) and `...-mmc2.xlsx` (PII from `api.crossref.org/works/10.1016/j.cell.2024.10.050`). Table S1 places blocks side by side: snRNA per-nucleus metadata in columns 18-30, endosperm integration in 32-42, embryo integration in 43-67 (skill test H3, 2026-10-22).
 - Large objects were not downloaded (per-stage Seurat rds 0.9-1.3 GB, Visium rds 132-381 MB, endosperm iNMF 272 MB, embryo uiNMF 379 MB; listed in `Zhang2025/README.md`).
 
 ## Update 2026-10-20: gap-fill reviews

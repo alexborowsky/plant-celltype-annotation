@@ -3,6 +3,55 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.2.0] - 2026-10-22
+
+Fixes from a 22-run test round (benchmarks, high- and low-quality published annotations, non-model species).
+
+### Added
+- **Reference proteome hubs:** `references/proteomes.tsv` (21 hubs: Arabidopsis, rice MSU7/RAP, maize v5, sorghum, wheat,
+  barley, tomato, soybean, medicago, lotus, poplar, Brachypodium, Marchantia, Physcomitrium...). Each hub's gene IDs match
+  the marker tables, with the measured match rate per table. `scripts/fetch_reference.sh` downloads a hub, keeps one isoform
+  per gene, writes symbols and builds a DIAMOND database. SKILL.md Step 5 says which hubs to search for each target lineage
+  (e.g. rice + maize + sorghum + Arabidopsis for grasses).
+- `scripts/check_genes.py`: gene-level checks by symbol or ID, resolved through the gene maps (every copy), with per-cluster
+  fraction, mean and z. Use it instead of typing gene IDs from memory.
+- `scripts/score_gene_sets.py`: checks labels published only per cluster by scoring each published cluster's marker list
+  in the current clusters (best match, margin, high-count warning).
+- `references/markers/celltype_aliases.tsv` (synonymous cell-type names, used by the scripts);
+  `references/annotation/araport11_genes.tsv.gz` (Arabidopsis symbols and descriptions);
+  `references/annotation/rice_msu_rap.tsv.gz` (MSU7 ↔ RAP-DB).
+- Markers: xylem cell-death genes (MC9, XCP1/2, BFN1, RNS3); moss and liverwort rhizoid genes (PpRSL1/2, MpLRL).
+- `map_markers.py`:
+  - `--match-unversioned`, `--id-rewrite`, `--query-rewrite`, `--h5ad`/`--target-genes` (ID match-rate check and warning);
+  - symbols and a `relationship` column in `--orthology` mode;
+  - close-species paralog rescue by identity (`--rescue-min-pident`);
+  - a warning when one gene marks several cell types;
+  - new traits: fern, angiosperm, tracheophyte, magnoliid, Triticeae, Euphorbiaceae, Phaseoleae.
+- `cluster_evidence.py`: several `--gene-map` files; `--doublet-scores`; `--aliases`; QC compared with sibling clusters;
+  markers detected / measurable / all-zero; `marker_score_details_<key>.tsv`; symbol columns in `de_<key>.csv`.
+- `annotation_report.py`: `--gene-annotation`, several `--gene-map` files, `--extra-genes`, `--min-detect`.
+- `subcluster.py --batch-key` (Harmony on the recomputed subset PCA).
+- `tests/test_lineage_tags.py`; the smoke test now also runs the new helpers.
+
+### Changed
+- **Doublet flag** fires only for unrelated types. Pairs that share driving genes, a name, an alias or a lineage are skipped;
+  each type needs ≥ 2 detected markers; per-cell doublet scores are used when available. On the test runs this cut flags
+  from 348 to 31.
+- **Lineage tags** rewritten as three explicit groups (angiosperm-only, seed-plant, vascular-plant). Moss and liverwort
+  targets no longer score shoot-apex zones, primordia, pavement, trichome or sperm-cell rows; ferns, lycophytes and
+  gymnosperms drop the types they lack.
+- **Report** marker choice ranks by specificity, with a 10% detection floor. Labels no longer overlap, `Xylem` markers no
+  longer count for `Xylem_Parenchyma`, and orthology mode shows relationships instead of "nan%".
+- **SKILL.md:**
+  - developmental cell death (xylem, tapetum, root cap) is separated from senescence;
+  - Step 8b also covers state-labelled and low-confidence clusters while an expected type is missing;
+  - confidence is capped when the best marker is detected in < 15% of cells;
+  - QC is compared with sibling clusters;
+  - label conventions (`<Type>_like`, transitions, developmental states, `Unknown_<hint>`);
+  - per-cluster published labels; ID-matching guidance.
+- Marker data: Catharanthus FAMA row corrected (it pointed to MUTE); atlas notes corrected (tomato root, rice
+  inflorescence, soybean root), with label-source recipes and a new `atlases/rice_root.md`.
+
 ## [0.1.1] - 2026-10-21
 
 ### Added

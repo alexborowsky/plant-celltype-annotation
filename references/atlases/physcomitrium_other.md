@@ -24,9 +24,8 @@ Files in this folder:
 
 Conventions:
 - `ref_species` = `physcomitrium`. `tissue` = `protonema` or `gametophore`.
-- `requires` = `moss`. This trait tag is **new**: it is not yet in the skill's
-  vocabulary or `map_markers.py` IMPLIES. Until it is added, rows only apply when
-  `moss` is passed in `--target-traits` (same handling as `liverwort`).
+- `requires` = `moss`. The tag is in the skill vocabulary (`moss` -> `bryophyte`);
+  rows apply only when `moss` is passed in `--target-traits`.
 - Gene IDs: data mapped to v3.3 should match `ref_gene` directly. For v1.6 data use
   `--id-column alt_id` (reporter genes will not match). Check whether the dataset uses
   the bare locus (`Pp3c16_25600`) or the transcript (`Pp3c16_25600V3.1`).

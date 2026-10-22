@@ -46,8 +46,10 @@ Canonical names follow the skill tables. "-" means the type is not labeled in th
 | Pericycle | Adopt (C13; poles not split) | Adopt (Pericycle.1_1; poles not split) | Pericycle |
 | Procambium / Stele_Parenchyma | Revise (C12 "cambium", 14.7%, weak) | Revise (Procambium.1_0, catch-all) | Procambium |
 | Xylem | Adopt (C14, differentiating) | Revise (Xylem.8_1, weak) | Xylem |
-| Phloem_Companion | Adopt (C16) | Revise (Phloem.8_0; CC and SE not split. Reject 8_2 as a stress state) | Phloem |
+| Phloem_Companion | Adopt (C16) | Reject Phloem.8_0 (no phloem markers per nucleus; see below). The CC phloem sits inside Procambium.1_0. Reject 8_2 as a stress state | Phloem |
 | Phloem_Sieve_Element | Revise: C15 "phloem fiber" → developing SE | - | - |
+
+Verdicts are desk review (Table S1/S2, GEO pseudobulk); re-check in data. **Correction from the per-nucleus check (skill test L5, 2026-10-22):** Zhang's Phloem.8_0 is not phloem. In the Seurat object, MT3-like `Glyma.12G154300` is in 4.8% of 8_0 nuclei vs 49% of a ~106-nucleus cluster that lies 72% inside Procambium.1_0, together with PP2-A1-like, SUC/SUT1-like and AHA; PP2-A1/SUC are <=2% in 8_0. 8_0's own top genes (`Glyma.15G228200`/`228300`, the paper's Visium vasculature markers) suggest an unresolved vascular (precursor?) population. The GEO pseudobulk columns (MT3-like 540 counts in 8_0 vs 259 in 1_0) disagree with the Table S1 sub-cluster labels for this gene, so do not use the pseudobulk to place genes in 8_0/1_0. Xylem.8_1 is also unsupported per nucleus (secondary-wall genes have zero counts; see the filtering note below).
 
 ## Cross-study markers
 
@@ -67,8 +69,8 @@ Cross-study agreement raised 12 rows to `high`. Each was validated by MC in situ
 | Pericycle | Glyma.11G078300 | AHK1-like | de novo 0.57 vs 0.04 | no |
 | Xylem | Glyma.13G334500 | UXS | pseudobulk 5x | no |
 | Xylem | Glyma.15G040000 | UXS5-like | pseudobulk 7x | no |
-| Phloem | Glyma.05G216000 | uncharacterized | Phloem.8_0 top; Visium vasculature | no |
-| Phloem | Glyma.12G154300 | MT3-like | Phloem.8_0 3.5x; Visium vasculature | no |
+| Phloem | Glyma.05G216000 | uncharacterized | Phloem.8_0 top (but 8_0 is not phloem, L5); Visium vasculature | no |
+| Phloem | Glyma.12G154300 | MT3-like | ~~Phloem.8_0 3.5x~~ (GEO pseudobulk only; per nucleus it is in the CC cluster inside Procambium.1_0, L5); Visium vasculature | no |
 
 Circularity note: Zhang 2025 labeled its clusters partly with markers taken from the Cervantes-Pérez preprint. I still counted those genes, because each Zhang cluster's identity also has independent support:
 - Pericycle: PHO1-H5, FRD3a and NRT1.5 in the de novo DE.
@@ -102,8 +104,13 @@ Use **Cervantes-Pérez 2024** as the primary reference. It has three replicates,
 - Keep C12 as a procambium/stele-parenchyma hypothesis.
 
 Its portal labels cover only 63% of nuclei, and C3 is batch-skewed.
+- Source: the Dash app http://soybeancellatlas.org/tissue-scatter/root (URL checked 2026-10-22). POST to `/django_plotly_dash/app/SoybeanTissueScatter/_dash-update-component` with tissue-type `root`, as the page itself does; the response holds barcode, ClusterID, ClusterName and UMAP. Barcode suffix `-k` = sample k: GSM7065807/08/09 matched 88% vs <=33% for other permutations (skill test C, 2026-10-22).
+- Table S1/S2 on PMC (`/bin/mmc7.xls`, `mmc8.xlsx`) show a bot check to scripts.
 
-Use **Zhang 2025** as a second, complete per-nucleus reference (Table S1) for the epidermis, endodermis, pericycle and root-hair labels. Before using it, drop Cortex.7 and Phloem.8_2 via `Seurat_clusters`, and do not trust Procambium.1_0. Its scATAC Root_cap and RAM labels are the only root-cap/RAM labels in the group, but they are ATAC-only and batch-skewed.
+Use **Zhang 2025** as a second, complete per-nucleus reference (Table S1) for the epidermis, endodermis, pericycle and root-hair labels. Before using it, drop Cortex.7, Phloem.8_0, Xylem.8_1 and Phloem.8_2 via `Seurat_clusters`, and do not trust Procambium.1_0 (it contains the CC phloem).
+- Source: Table S1, https://ars.els-cdn.com/content/image/1-s2.0-S009286742401273X-mmc1.xlsx (41.8 MB, all tissues; URL checked 2026-10-22; cell.com and PMC block scripts). Root snRNA nuclei: `Tissue`=Root with cellID `rt3_<16mer>` (rep1) or `rt4_<16mer>` (rep2); columns Replicate, Seurat_clusters, Celltype (7,496 nuclei).
+- `Seurat_clusters` -> Celltype: 0, 5, 7 Cortex; 1_0 Procambium; 1_1 Pericycle; 2, 3 Epidermis; 4 Endodermis; 6 Root_hair; 8_0 Phloem; 8_1 Xylem; 8_2 Phloem.
+- GEO `GSE270392_Gm_atlas_Root.rna.seurat.obj.rds.gz` is gzipped twice (`readRDS` fails with "unknown input format"; `zcat` it to a `.rds` first, then `readRDS`), and its counts are gene-filtered: 16,352 of 40,127 genes are zero in every nucleus, including all root-hair, root-cap, xylem secondary-wall, CASP/SCR/MYB36 and many G2/M markers. Treat those as not measurable, not absent (L5). Its scATAC Root_cap and RAM labels are the only root-cap/RAM labels in the group, but they are ATAC-only and batch-skewed.
 
 ## Conflicts and corrections
 
@@ -138,7 +145,7 @@ Use **Zhang 2025** as a second, complete per-nucleus reference (Table S1) for th
 
 ## Overlap with existing skill tables
 
-The skill has no soybean table (`references/markers/`: arabidopsis_leaf, arabidopsis_root, rice_root, sorghum_leaf, sorghum_root_Guillotin2023). There is no row-level overlap.
+This table is the skill's `primary/soybean_root.tsv`. Every row cites Cervantes-Pérez 2024 (some also Zhang 2025), so benchmarking on either dataset with it is circular. No other skill table has soybean rows.
 
 Several rows here are soybean orthologs of `function` genes in `arabidopsis_root.tsv`: EXPA7, CASP1, SMB, and the SCR/PLT/WOX5 family. Through `map_markers.py` homology, the Arabidopsis table would also cover:
 - Quiescent_Center (WOX5)

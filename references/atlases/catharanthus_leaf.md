@@ -37,7 +37,7 @@ Files in this folder:
 |---|---|---|---|---|---|
 | `Li2023/` (reviewed) | Li C et al. 2023 *Nat Chem Biol* 19:1031, 10.1038/s41589-023-01327-0; PRJNA847226; Dryad 10.5061/dryad.d2547d851 | Protoplast scRNA-seq, 10x 3' v3.1 (3 libraries) plus 1 Drop-seq replicate; young leaves, cv. Sunstorm Apricot; genome v3 | 15,437 (text) / 15,348 (Source Data) | Cluster-level only. Source Data Fig 4a has a cluster per cell but no barcodes, and the GitHub code gives 17 clusters, not the published 16 | medium |
 | Sun 2023 (collation check only) | Sun S et al. 2023 *Nat Plants* 9:179, 10.1038/s41477-022-01291-y; PRJNA759937; genome PRJNA841429; figshare 10.6084/m9.figshare.20255094 | Protoplast scRNA-seq, 10x (3 leaf samples; 1.8-2.0 cm leaves used for RIH); own genome assembly, `EVM00xxxxx` gene IDs | 34,392 high-quality cells (Alevin) | Cluster-level only. Supplementary Data 1 (8.9 MB Plotly HTML) has cluster numbers per point but no barcodes. Quantification is in a 1.17 GB figshare tarball (`00_alignment_output.tar.gz`; not downloaded) | medium-high for the MIA types (new RIH for 4 markers plus TDC and G10H) |
-| Li 2025 (collation check only) | Li C et al. 2025 *New Phytol* 245:347, 10.1111/nph.20208 (PMC11617651, open access); PRJNA1098712; figshare 10.6084/m9.figshare.25586979 | 10x snMultiome (RNA plus ATAC), mature leaves of 8-10-wk plants, 3 reps; genome v3 | 8,803 nuclei (RNA); 3,542 with both assays | Probably per-nucleus, inside `CRO_RNA.Rds` (283.9 MB) and `CRO_multiome.Rds` (445.3 MB) on figshare (not downloaded; the code writes `cell_type` into `meta.data`). STARsolo matrices are 34-39 MB per rep | not scored. Same lab, genome and marker list as Li 2023 |
+| Li 2025 (collation check only) | Li C et al. 2025 *New Phytol* 245:347, 10.1111/nph.20208 (PMC11617651, open access); PRJNA1098712; figshare 10.6084/m9.figshare.25586979 | 10x snMultiome (RNA plus ATAC), mature leaves of 8-10-wk plants, 3 reps; genome v3 | 8,803 nuclei (RNA); 3,542 with both assays | Per-nucleus, inside `CRO_RNA.Rds` (283.9 MB, figshare file 45607509: https://ndownloader.figshare.com/files/45607509; list files with `api.figshare.com/v2/articles/25586979`). `meta.data$cell_type` has 7 labels (Mesophyll, Epidermis, Vasculature, Idioblast, IPAP, Guard cells, Unassigned) and `integrated_snn_res.0.5`; cell names `<16-mer>_<rep 1-3>`. Confirmed in skill test N3 (2026-10-22, 8,803/8,803 matched). `CRO_multiome.Rds` (445.3 MB) not opened. STARsolo matrices are 34-39 MB per rep | not scored. Same lab, genome and marker list as Li 2023 |
 
 Cell types per dataset, as published:
 
@@ -102,7 +102,9 @@ Agreement on **non-specificity** lowered or held some genes: LAMT (broad
 in both studies: medium), STR (in situ in epidermis, but not specific in
 either scRNA dataset: low), NMT (idioblast plus epidermis in both: low).
 GES, HDS, CS, APL, SUC2 and FAMA agree by gene name only (no accession on
-one side), so they were not raised.
+one side), so they were not raised. The FAMA row's locus was corrected on 2026-10-22: CRO_06G006770 is
+the reciprocal best BLASTP hit of AT3G24140; the earlier CRO_06G007040 is the
+MUTE (AT3G06120) ortholog (skill test N3).
 
 ## Gaps
 
@@ -123,8 +125,8 @@ non-MIA types, use `arabidopsis_leaf.tsv` through homology.
   also have earlier in situ evidence. No dataset gives barcoded labels in a
   small table.
 - **Per-cell labels:** Li 2025 `CRO_RNA.Rds` (283.9 MB, figshare
-  25586979) is the only source that probably has per-nucleus labels in v3
-  IDs, and it is the only one with a guard-cell cluster on v3 IDs. Export
+  25586979, file 45607509) is the only source with per-nucleus labels in v3
+  IDs (`meta.data$cell_type`, confirmed in skill test N3), and it is the only one with a guard-cell cluster on v3 IDs. Export
   `meta.data` in a job (`r_seurat` env) before relying on it, and give it a
   Part A review first (it has not had one).
 - **Cluster-level reference:** Li 2023 (cluster map in `Li2023/cluster_to_celltype.tsv`)
@@ -167,9 +169,8 @@ non-MIA types, use `arabidopsis_leaf.tsv` through homology.
   tables), used only for Sun's PRS2.
 - **New trait tag:** the MIA rows carry `requires=Apocynaceae`, so that
   homology mapping does not put them on other species, where GES/G8H
-  homologs are not IPAP markers. This tag is not yet in the skill's
-  vocabulary: add `Apocynaceae -> eudicot` to `IMPLIES` in `map_markers.py`
-  before using the table.
+  homologs are not IPAP markers. The tag is in the skill vocabulary
+  (`Apocynaceae -> eudicot` in `map_markers.py` IMPLIES).
 
 ## REVIEW rows (Sun 2023 EVM IDs)
 
@@ -209,7 +210,7 @@ the skill.
   validation details and per-type cell counts beyond Table S14 were not read.
 - **Li 2025 Supporting Information** (Table S4 marker list on Wiley) was not
   fetched. The cluster map comes from the GitHub code, and the per-nucleus
-  labels in the figshare Rds were not opened (too large for this session).
+  labels in the figshare Rds were not opened here (skill test N3 later did; see the table above).
 - **Prior in situ papers:** the attribution of individual genes to the papers
   behind Li 2023's in situ asterisks (refs 18-22: Burlat 2004, Miettinen 2014,
   Guirimand 2010, Guirimand 2011, Simkin 2013) and St-Pierre 1999 follows the

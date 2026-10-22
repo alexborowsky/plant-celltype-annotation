@@ -75,7 +75,7 @@ as a label.
 | Dataset provenance | Is this a published dataset (or a reanalysis of one)? Get the paper/DOI and accession (GEO/SRA/ENA). This decides whether Steps 1 and 3 apply. |
 | Clustered h5ad | Needs log-normalized expression (`.raw` or a layer), an embedding (`X_umap`), and one or more cluster columns (`leiden_res0.5`, …). If it has no clustering yet, stop and cluster first. |
 | Species, tissue, and developmental stage | Determines which marker tables apply (`references/markers/`), the `--target-traits` (e.g. `eudicot Solanaceae`, `grass C4`, `Sorghum`), and which caveats matter (C3 vs C4, monocot vs dicot, protoplast vs nuclei). |
-| Species → reference homology | BLASTP/DIAMOND (outfmt 6) of the target's proteins against each reference species used (Araport11 for Arabidopsis tables, sorghum v5.1 for sorghum tables). Add the reverse search for RBH and paralog rescue. Build these in a job if absent; DIAMOND `--very-sensitive` takes minutes. |
+| Species → reference homology | BLASTP/DIAMOND (outfmt 6) of the target's proteins against each reference hub that has tables for its lineage (`references/proteomes.tsv`; e.g. `arabidopsis` for Arabidopsis tables, `rice_msu7`/`maize_v5`/`sorghum_v5` for grass tables). Add the reverse search for RBH and paralog rescue. Build these in a job if absent; DIAMOND `--very-sensitive` takes minutes. |
 | Any curated species markers | For example, a `CellTypeMarkers.txt` the user already trusts. These take priority over the mapped reference markers. |
 | Metadata columns | Sample, replicate, and treatment, used for composition checks. |
 | Transgenes and reporters | Promoter-reporters are strong validation. They are usually excluded from the embedding and may live in `obs` as `<gene>_expr`. |
@@ -224,6 +224,14 @@ Then check:
     how each Leiden cluster splits across published labels. A cluster split
     across unrelated labels is a warning sign.
 
+**Labels published only per cluster** (a cluster → type table and each
+cluster's marker list, but no barcodes) can still be checked: write the
+published clusters' marker genes as gene sets and score every current
+cluster with `scripts/score_gene_sets.py` (best match per published label,
+margin to the second best, high-count clusters flagged because they inflate
+set scores). A published label is supported where its set wins clearly
+*and* its known function markers agree; treat a narrow margin as unresolved.
+
 If the paper's markers use the dataset's gene IDs, write them as a target
 marker table (`published/markers.tsv`, format in
 `references/file_formats.md`, graded as in
@@ -327,11 +335,11 @@ Curated core tables:
 
 | Target | Tables | Homology search against |
 |---|---|---|
-| Eudicot leaf | `arabidopsis_leaf.tsv` | Araport11 |
-| Eudicot root | `arabidopsis_root.tsv` (Shahan et al. 2022 curated + classic) | Araport11 |
+| Eudicot leaf | `arabidopsis_leaf.tsv` | `arabidopsis` hub (Araport11) |
+| Eudicot root | `arabidopsis_root.tsv` (Shahan et al. 2022 curated + classic) | `arabidopsis` hub |
 | Sorghum itself | `sorghum_leaf.tsv`, `sorghum_root_Guillotin2023.tsv` with `--no-blast` | none |
 | Rice root | `rice_root.tsv` with `--no-blast` (MSU7 IDs; add `--id-column alt_id` for RAP-DB IDs), plus `arabidopsis_root.tsv` for conserved functions | Araport11 for the Arabidopsis table only |
-| Other grasses | the sorghum tables (and `rice_root.tsv` for root), plus the Arabidopsis tables for conserved functions | sorghum v5.1, rice MSU7, and Araport11 (one run each) |
+| Other grasses | the sorghum tables (and `rice_root.tsv` for root), plus the Arabidopsis tables for conserved functions | `sorghum_v5` (or public `sorghum_v3`), `rice_msu7`, `maize_v5` and `arabidopsis` hubs (one run each) |
 
 ```bash
 M=~/.claude/skills/plant-celltype-annotation/references/markers
@@ -357,7 +365,8 @@ python scripts/map_markers.py --no-blast --target-traits Sorghum \
   Vocabulary (full list and implications in `references/markers/README.md`):
   `eudicot monocot grass C3 C4 Brassicales Brassicaceae Solanaceae Capsicum
   Fabaceae Gossypium Rosaceae Apocynaceae Cucurbitaceae Sorghum Oryza
-  gymnosperm conifer bryophyte moss liverwort hornwort lycophyte`. Specific
+  gymnosperm conifer bryophyte moss liverwort hornwort lycophyte fern
+  angiosperm tracheophyte magnoliid Triticeae Euphorbiaceae Phaseoleae`. Specific
   traits imply general ones (`Sorghum` implies `grass C4 monocot`; `Oryza`
   implies `grass C3 monocot`; `liverwort` implies `bryophyte`).
   - Vascular, root, stomatal, hydathode, periderm, axillary-meristem, flower
@@ -370,34 +379,97 @@ python scripts/map_markers.py --no-blast --target-traits Sorghum \
     but the split between cell types is not conserved (see
     `references/plant_pitfalls.md`). `map_markers.py` warns when members of
     one gene family are listed for different cell types.
+- **Non-angiosperm targets** (`liverwort`/`moss`/`hornwort` → bryophyte;
+  `lycophyte`; `fern`; `gymnosperm`/`conifer`) drop the types they lack:
+  bryophytes drop vascular, root, stomatal, SAM-zone, primordium, boundary,
+  stem-cell-niche, pavement, trichome, flower, seed and endosperm types; ferns
+  and lycophytes also drop SAM zonation, pollen/sperm, ovule, seed/embryo and
+  secondary-growth types; gymnosperms drop flower, fruit, endosperm,
+  seed-coat and companion-cell types. Epidermis, protoderm and cell-cycle
+  states are kept. `scripts/lineage_tags.py` writes these tags; run it on
+  *all* tables after adding rows (`tests/test_lineage_tags.py` checks).
+- **Same-species tables (`--no-blast`): check that the IDs match.** Pass
+  `--h5ad data.h5ad` (or `--target-genes var_names.txt`); the script reports
+  how many table IDs are in the data and warns below 50%. Versioned
+  var_names (tomato `Solyc..g......3`, `.1` suffixes): `--match-unversioned`.
+  Other ID styles: `--id-rewrite 'FROM=>TO'` on the table side (e.g.
+  `'Glyma\.=>GLYMA_'`) or `--query-rewrite` on the data side (e.g.
+  `'_evm=>-evm'`). Rice RAP-DB data: `--id-column alt_id`, or convert with
+  `references/annotation/rice_msu_rap.tsv.gz`.
+- **Read the "gene marks several cell types" warning.** Pairs marked `*` are
+  subtypes or fragmented names; merge true synonyms through
+  `references/markers/celltype_aliases.tsv`, or don't use those genes to
+  separate the two types.
 - **Tissue filter.** `--tissue leaf --tissue any` keeps rows whose tissue
   value contains `leaf` as a token (`leaf_stem_phloem` counts). Cell types that
   are shared across organs (phloem, xylem, procambium, guard, dividing
   cells) can be taken from another organ's table when the target organ's
   table lacks them: add that organ to `--tissue`, and say so in the Evidence
   column.
-- **Building the homology search.** If no BLAST file exists, run DIAMOND
-  in the allocation (minutes for a plant proteome):
+- **Reference proteomes (hubs).** `references/proteomes.tsv` lists, per
+  reference species, a public proteome whose gene IDs match the marker
+  tables, with the measured match per table. `bash
+  scripts/fetch_reference.sh <key> <outdir>` downloads it, keeps one isoform
+  per gene, renames headers to the table gene ID, and writes
+  `<key>.pep.fa`, `<key>_annotation.tsv` (symbols, descriptions) and
+  `<key>.dmnd`; `list` shows the keys. Build each hub once and reuse it.
+  Search each hub that has tables for your lineage:
+
+  | Target lineage | Hubs (keys) | Tables to map, and ID column |
+  |---|---|---|
+  | Grasses (maize, sorghum, millets, sugarcane, rice relatives) | `rice_msu7`, `maize_v5`, `sorghum_v5` (Phytozome login; public: `sorghum_v3`), `arabidopsis` | rice tables with `rice_msu7` (ref_gene) or `rice_rap` (`--id-column alt_id`); maize primary tables; sorghum core tables; Arabidopsis tables for conserved functions |
+  | Triticeae and other Pooideae (wheat, barley, rye, oat, Brachypodium) | `wheat`, `barley`, `rice_msu7`, `arabidopsis` (+ `brachypodium` with `--id-column alt_id`) | wheat_*, barley_* (ref_gene); rice tables; Arabidopsis tables |
+  | Other monocots | `rice_msu7`, `arabidopsis` | |
+  | Solanaceae (tomato, potato, pepper, Nicotiana) | `tomato`, `arabidopsis` | tomato_*, characterized/tomato; Arabidopsis tables |
+  | Fabaceae | `soybean` (Wm82.a4; `soybean_a2` for soybean_nodule), `medicago` (MtrunA17; `medicago_mt4` with `--id-column alt_id` for Mt4.0 Medtr IDs), `arabidopsis` | soybean_*, medicago_*, characterized/{soybean,medicago}; Lotus tables cannot be mapped from public files (Gifu `LotjaGi` IDs; only lotus_nodule alt_id via `lotus_mg20`) |
+  | Brassicaceae | `arabidopsis` | Arabidopsis tables (`--no-blast` for Arabidopsis itself) |
+  | Salicaceae / trees | `poplar`, `arabidopsis` | populus_stem (ref_gene), populus_root (`--id-column alt_id`) |
+  | Bryophytes | `marchantia` (liverworts), `physcomitrium` (mosses), `arabidopsis` | marchantia_other, characterized/marchantia, physcomitrium_other; pass `--target-traits bryophyte liverwort` or `moss` |
+  | Other eudicots | `arabidopsis` + the nearest hub (`tomato` for asterids; `poplar`, `soybean` or `medicago` for rosids) | |
+
+  Run DIAMOND in the allocation, forward and reverse, once per hub
+  (minutes per hub).
+  Reduce your species' proteome to one isoform per gene first.
   ```bash
-  # Araport11 proteins whose headers carry symbols, e.g. Ensembl Plants
-  # Arabidopsis_thaliana.TAIR10.pep.all.fa; one isoform per gene is best on both sides.
-  diamond makedb --in araport11.pep.fa -d araport11
+  H=/path/to/hubs  # the fetch_reference.sh outdir
+  hub=arabidopsis
   diamond makedb --in species.pep.fa -d species
-  diamond blastp --very-sensitive -k 10 -e 1e-5 -q species.pep.fa -d araport11 \
-      -o species_vs_Araport11.tsv --outfmt 6 -p $SLURM_CPUS_PER_TASK
-  diamond blastp --very-sensitive -k 10 -e 1e-5 -q araport11.pep.fa -d species \
-      -o Araport11_vs_species.tsv --outfmt 6 -p $SLURM_CPUS_PER_TASK
+  diamond blastp --very-sensitive -k 10 -e 1e-5 -q species.pep.fa -d $H/$hub \
+      -o species_vs_$hub.tsv --outfmt 6 -p $SLURM_CPUS_PER_TASK
+  diamond blastp --very-sensitive -k 10 -e 1e-5 -q $H/$hub.pep.fa -d species \
+      -o ${hub}_vs_species.tsv --outfmt 6 -p $SLURM_CPUS_PER_TASK
+  python scripts/map_markers.py \
+      --blast species_vs_$hub.tsv --blast-reverse ${hub}_vs_species.tsv \
+      --query-strip-regex='-mRNA$' --ref-annotation $H/${hub}_annotation.tsv \
+      --reference $M/arabidopsis_leaf.tsv $M/primary/arabidopsis_leaf.tsv \
+      --target-traits eudicot Solanaceae \
+      --out-gene-map gene_map_$hub.tsv --out-markers markers_$hub.tsv
   ```
-  Then use `--blast species_vs_Araport11.tsv --blast-reverse Araport11_vs_species.tsv`
-  and strip the isoform suffixes with `--query-strip-regex`/`--ref-strip-regex`.
-  Without DIAMOND, `blastp -max_target_seqs 10 -outfmt 6` works but is slower.
-  For the Solanaceae route, the tomato ITAG4.x proteome is on the Sol
-  Genomics Network (solgenomics.net).
+  - Hub FASTA headers are already the tables' gene IDs, so the default
+    `--ref-strip-regex` works for every hub (it only removes `.<digits>`,
+    which no hub gene ID ends with). `--query-strip-regex` must turn your
+    species' protein IDs into `adata.var_names`.
+  - When the hub's ID system is the table's `alt_id` (rice_rap, wheat_v2,
+    medicago_mt4, brachypodium, lotus_mg20, poplar for populus_root), add
+    `--id-column alt_id`.
+  - Use the Arabidopsis gene map for DE annotation (best symbols). Other hubs
+    carry few symbols; the marker table's `symbol` column names the marker.
+  - Login-only resources (Phytozome sorghum v5.1, Lotus Gifu, cotton ZJU) are
+    listed with `access` notes; build them from your own download with
+    `LOCAL_SRC=/path/to/proteins.fa.gz bash scripts/fetch_reference.sh <key> <outdir>`.
+  - Without DIAMOND, `blastp -max_target_seqs 10 -outfmt 6` works on the same
+    FASTA but is slower.
+- **Close species** (maize ↔ sorghum, rice ↔ other grasses): the
+  reverse-best paralog rescue also accepts pairs with ≥ 90% identity over
+  aligned residues (`--rescue-min-pident`); the log says which rule rescued.
 - **Orthology tables instead of BLAST.** When the dataset comes with an
   OrthoFinder-style table (one row per species gene, with its Arabidopsis
   orthologues and the relationship), pass `--orthology table.tsv` instead of
   `--blast` (columns set by `--orth-query-col`, `--orth-ref-col`,
   `--orth-rel-col`; defaults `gene_id`, `At_orthologues`, `At_relationship`).
+  Symbols and descriptions come from the table's `<prefix>_symbols` /
+  `<prefix>_descriptions` columns automatically, and the outputs carry a
+  `relationship` column (1:1, many:1, …) instead of % identity.
   Every listed orthologue counts as rank 1. One-to-one pairs are marked
   `rbh=yes`. There is no identity or bitscore, so the copy cap falls back to
   file order.
@@ -439,7 +511,7 @@ python scripts/map_markers.py --no-blast --target-traits Sorghum \
   unlabeled.
 - **Solanaceae (Nicotiana, tomato, pepper, potato).** Use the Arabidopsis
   core and `characterized/arabidopsis.tsv` tables via Araport11, plus the
-  tomato tables via a BLAST against the tomato ITAG4 proteome (a second
+  tomato tables via a search against the `tomato` hub (SGN ITAG4.1; a second
   `map_markers.py` run): `primary/tomato_root.tsv`, `primary/tomato_other.tsv`
   (glandular trichome: TPS5, SlMYC1, NDPS1; trichome: Wo, H) and
   `characterized/tomato.tsv`. Pass `--target-traits eudicot Solanaceae`.
@@ -495,9 +567,31 @@ keep large datasets tractable.
 - **Gene names.** When several marker tables give one gene different names,
   the species' own name (same-species or user-curated table) is shown, and
   the reference-homolog name is kept in `ref_symbol`.
-- The script warns when the object's gene list looks filtered upstream (HVGs
-  only or fewer than ~12,000 genes). Markers outside that list are missing,
-  not absent.
+- **Markers found vs measurable.** The log prints `N/M in var_names, K/M
+  found (detected in ≥ 1 cell)`. Markers with zero counts everywhere are
+  listed as *not measurable here* and left out of the scores; when ≥ 20% of
+  markers are missing or all-zero (or the gene list looks filtered:
+  HVGs only, < ~12,000 genes) the script warns. A type whose markers are
+  not measurable cannot be called absent.
+- **Marker-score line:** `det a/b` = markers detected out of those measured,
+  `best` = the highest in-cluster fraction of any marker, `[1 gene]` = the
+  score rests on one gene (weak). Per-type details are in
+  `marker_score_details_<key>.tsv`.
+- **QC vs siblings:** QC entries read `x<dataset ratio>; sib x<ratio to
+  sibling clusters>` (same parent at the next coarser resolution). The
+  `low-QC candidate` flag needs counts and genes < 0.6× both medians.
+- **Doublet flag:** fires only for two *unrelated* types, each with ≥ 2
+  detected and ≥ 2 driving markers that are not all expression-tier; pairs
+  sharing a driving gene, a name token, an alias or a lineage group are
+  skipped, and counts must be ≥ 1.3× the median. Pass per-cell scores with
+  `--doublet-scores scrublet.tsv` (barcode + `doublet_score`; or keep them in
+  `obs`); the cluster median must then be ≥ 1.5× the dataset median. It is a
+  prompt to check, not a call.
+- **Several gene maps:** `--gene-map primary.tsv second.tsv …`; the first
+  names DE genes, the others are appended (`[Mp: SYMBOL (ID)]`).
+  `de_<key>.csv` carries `ref_symbol`, `ref_description`, `symbol` and
+  `other_homologs`. For Arabidopsis symbols without a BLAST file, pass
+  `--gene-annotation references/annotation/araport11_genes.tsv.gz`.
 - The script warns about markers missing from the data, grouped by cell
   type, and about cell types with no marker present at all. Calling such a
   type "absent" is not supported by the markers.
@@ -514,11 +608,23 @@ do check that they agree with the published labels. For each remaining
 cluster:
 
 1. **Quality first.** Is it low in counts or genes, high in organellar
-   fraction, or driven by one sample? If so, it is probably a
-   technical/batch cluster, so flag it and don't give it a cell type.
+   fraction, or driven by one sample? Compare it with its **sibling
+   clusters** (same parent at the coarser resolution; the evidence file gives
+   both ratios), not only with the dataset median: nuclei of some types
+   (vacuolated parenchyma, epidermis) are small everywhere. Call
+   `Low_Quality` only when it is low against siblings too and has no
+   biological program; a low-RNA cluster that still carries a program is
+   `Unknown_<hint>` (e.g. `Unknown_low_RNA_cortex_like`). A cluster driven
+   by one library or stage is a batch question first: check whether the
+   same program appears, weaker, in the other libraries' cells of the
+   neighbouring type, and whether it is anatomically plausible (a stem
+   region, a developmental stage) before calling it technical.
    **Doublets:** a cluster with high counts (≳1.3× the median) that
-   co-expresses two unrelated lineage programs (the evidence markdown flags
-   "possible doublets" when two types both score ≥ 1) is likely doublets.
+   co-expresses two unrelated lineage programs is likely doublets. The
+   evidence markdown flags "possible doublets" only for unrelated types
+   (pairs that share driving genes, a name, an alias or a lineage are
+   skipped, and each type needs ≥ 2 detected markers); still confirm two
+   independent programs gene by gene.
    Check at a finer resolution. Doublet scores (scrublet) help, but their
    automatic threshold often misses plant nuclei doublets; compare the
    cluster's median score with the others. Label such clusters
@@ -526,6 +632,14 @@ cluster:
 2. **Marker-set score.** Is there a clear top cell type (score ≳ 1, well
    above the runner-up)? Which individual markers drive the score? One
    strong marker plus a coherent DE list beats several weak ones.
+   - **Cap confidence by detection.** If the best marker for a call is
+     detected in fewer than ~15% of the cluster's cells, the call is `low`
+     at most, whatever the score; a score driven by one gene (`[1 gene]` in
+     the evidence file) is a lead, not a call.
+   - **Rows from the wrong organ or lineage can win** (a periderm row in a
+     root tip, an embryo-sac row in a panicle). Check that the top type
+     exists in this tissue (`expected_cell_types.tsv`) before reading the
+     score.
    - **Judge each marker by its fraction in vs out, not by an absolute
      fraction.** Transcription factors and channels are sparse in nuclei.
      SCL23 in 6% of a cluster vs 0.5% elsewhere is real enrichment; a
@@ -537,9 +651,17 @@ cluster:
 3. **Unbiased DE.** Do the top DE homologs tell the same story? Look for
    known functions: cuticle/wax → epidermis; SWEETs → phloem parenchyma;
    SUC2 → companion cell; XCP/IRX/cellulose synthases → xylem; histones →
-   S phase; cyclin B / KNOLLE → G2/M; SAGs/cysteine proteases → senescence;
-   PR proteins → defense state. If DE contradicts the score, trust DE and
-   investigate.
+   S phase; cyclin B / KNOLLE → G2/M; PR proteins → defense state. If DE
+   contradicts the score, trust DE and investigate.
+   - **Cell-death programs are not automatically senescence.** Papain-like
+     cysteine proteases (XCP1/2, RD21, CEP1), MC9-type metacaspases,
+     nucleases (BFN1) and VND-interacting NACs mark *developmental* PCD:
+     differentiating xylem (tracheary elements) next to a procambium or
+     vascular cluster, tapetum in anthers, root cap. Call **senescence** only
+     with senescence evidence: SAG12, chlorophyll breakdown (SGR, NYC1, PAO)
+     *and* declining photosynthesis/ribosome programs, in an old organ. A
+     rice panicle test labelled differentiating xylem (MC9 homolog 51% vs
+     4%, CEP1/RD21) "Senescing" and so missed xylem entirely.
 4. **Resolution.** Rare types (guard, xylem, companion cells, trichomes)
    often separate only at high resolution. Common types (mesophyll) are
    often split into state sub-clusters at high resolution, so label them at
@@ -568,6 +690,17 @@ Then compare the calls with `expected_cell_types.tsv`:
 - **A call that isn't on the list** needs stronger evidence, or a reason
   why the list missed it.
 
+**Label conventions** for calls that are not a clean type:
+- `<Type>_like` with `low` confidence: lineage-consistent but no specific
+  marker (e.g. `Cortex_like` called by exclusion). Say "by exclusion".
+- Transitional states: `<TypeA>_to_<TypeB>` (e.g. `Procambium_to_Xylem`)
+  when a cluster carries both programs at intermediate levels along a
+  trajectory, not two unrelated programs (that is a doublet).
+- Developmental-state blocks when no organ marker separates them:
+  `Young_<lineage>`, `Expanding_<lineage>`, `Mature_<lineage>`; state the
+  organ-identity alternative in the Evidence column.
+- `Unknown_<hint>` for clusters with a program but no identity.
+
 Then draft the annotation table (format in `references/file_formats.md`),
 including an `Evidence` column, and present it to the user as a compact
 table. Say which rows were adopted from the publication and which were
@@ -586,13 +719,19 @@ Then run `cluster_evidence.py` on `sub_cl6.h5ad` with
 By default the subclusters reuse the global (integrated) PCA. Its axes
 separate the major types and may not capture variation within one cluster.
 When looking for a rare type inside a cluster, add `--recompute-pca`
-(subset HVGs + PCA). It does not redo batch integration, so check the
-subclusters against sample.
+(subset HVGs + PCA). Add `--batch-key sample` (or the library column) so
+the subset PCA is Harmony-corrected; without it, subclusters often split by
+library. Still check the subclusters against sample.
 
 ### 8b. Follow up on unlabeled clusters (required before Step 9b)
 
 Do this without being asked, for every cluster still `Unknown` after
-Steps 7–8, and always when Unknown holds more than ~10% of cells. Reference
+Steps 7–8, and always when Unknown holds more than ~10% of cells. Also do it
+for clusters labelled only as a **state** (senescing, stress, wound,
+defense) or at **low** confidence **whenever an expected type has no cluster
+yet**: the missing type is often hiding under a state label. And test every
+expected-but-missing type explicitly, not only the hypotheses the DE
+suggests. Reference
 marker tables are built from model species and miss lineage- and
 organ-specific programs, so a large Unknown block usually means a known type
 with no marker in the tables, not a new type.
@@ -605,7 +744,9 @@ with no marker in the tables, not a new type.
    - the cluster's own top DE homologs, read as a program (transporters,
      biosynthetic enzymes, cell-wall genes);
    - where the cluster sits in `cluster_hierarchy.tsv` and on the UMAP
-     (which labeled neighbours it splits from).
+     (which labeled neighbours it splits from);
+   - small distinct programs inside a majority type (a few hundred cells
+     with private DE genes inside "Mesophyll") are hypotheses too.
 2. **Find marker genes for each hypothesis.** Prefer the pathway's
    characterized enzymes or transporters from the same genus or family. Their
    sequences are in UniProt, which the REST API serves without a key (check
@@ -620,7 +761,12 @@ with no marker in the tables, not a new type.
    exohydrolase) are separated. Write the genes as a small marker table with
    `basis` and `source`.
 3. **Test the hypothesis in the data.** Score the genes per cluster with
-   `cluster_evidence.py`, or tabulate the fraction and mean per cluster.
+   `scripts/check_genes.py` (symbols or IDs in; resolves every copy through
+   the gene map; per-cluster fraction, mean and z out) or
+   `cluster_evidence.py`. **Never type gene IDs from memory**: resolve them
+   through the mapped marker table or the gene map (a test rejected a
+   validated type after checking a mistyped AGI). Test the genes the
+   competing explanation rests on too, and cite counter-evidence.
    Pathway enzymes of abundant products are often detected in most nuclei
    everywhere, so judge them by **level**: a cluster with clearly higher mean
    expression and no competing identity supports the hypothesis. The report
@@ -686,8 +832,9 @@ deliverable that shows *why* each label holds. Look at it: render pages with
 
 ```bash
 python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellTypeAnnotations.txt \
-    --markers markers_from_arabidopsis.tsv [markers_sorghum.tsv] --gene-map gene_map.tsv \
-    [--colors CellTypeColors.txt] [--alias Procambium_Dividing=Procambium,Dividing_cells] \
+    --markers markers_from_arabidopsis.tsv [markers_sorghum.tsv] --gene-map gene_map.tsv [gene_map_maize.tsv] \
+    [--gene-annotation target_genes.tsv] [--colors CellTypeColors.txt] \
+    [--extra-genes Bundle_Sheath=Nb05g00210,ACA1,NPF6.2] [--alias Procambium_Dividing=Procambium,Dividing_cells] \
     --output annotation_qc/annotation_report.pdf
 ```
 
@@ -708,10 +855,20 @@ The PDF contains:
 - **A dotplot** of every marker shown, by cell type.
 
 Markers per page:
-- Up to `--max-markers` (default 3) are shown. They are chosen by
-  confidence, then evidence tier, among markers actually enriched in the
-  cell type. So a page shows at least one high-quality marker, or the 2–3
-  best weaker ones when that is all there is.
+- Markers must be enriched in the cell type and detected in at least
+  `--min-detect` (default 10%) of its cells. Up to `--max-markers` (default
+  3) are shown, ranked by specificity (how much more often and more strongly
+  the type expresses the gene than all other cells); evidence tier and
+  confidence only break near-ties. At least one function-tier marker is
+  shown when one passes the floor. Enriched markers below the floor (sparse
+  regulators such as GL2 or FAMA) are listed in the text panel and plotted
+  only when nothing reaches the floor. Other gene copies of a shown marker
+  are listed with their detection.
+- **A call that rests on genes outside the marker tables** (DE genes, Step 8b
+  hypothesis genes) must show them: `--extra-genes CellType=GENE1,GENE2`
+  (repeatable; IDs or symbols resolved through the gene maps and
+  annotations, never typed from memory), labelled "extra (not in marker
+  tables)".
 - A marker counts as enriched by a clear mean gap with a detection ratio
   ≥ 1.5, by a detection ratio ≥ 3 for sparse markers, or by a mean gap
   ≥ 1 log unit in at least half the cells for abundant genes detected
@@ -721,8 +878,10 @@ Markers per page:
 - With no enriched marker, the page falls back to top DE genes, labeled as
   data-driven only. Treat such cell types as weakly supported.
 - Use `--alias` when an annotation name differs from the marker tables'
-  cell-type names. Otherwise related names are matched by name tokens
-  (`Phloem` markers count for `Phloem_Companion`).
+  cell-type names. True synonyms in `references/markers/celltype_aliases.tsv`
+  are matched automatically; otherwise related names are matched by name
+  tokens (`Phloem` markers count for `Phloem_Companion`, but base-type
+  markers never count for `<X>_Parenchyma` or `Phloem_Pole_Pericycle`).
 
 ### 10. Iterate and record
 
@@ -759,6 +918,11 @@ markers belong in published atlas tables, labeled as such.
 | `references/atlas_catalog.tsv` | Step 1 and Step 4: is this dataset (or an atlas of this species and organ) already found or reviewed? 389 datasets with review status, quality, label access, and Oak review folder. |
 | `references/atlases/README.md`, `references/atlases/<group>.md` | Before using a survey table, or when choosing a label reference: per species x organ datasets, verdicts, recommended reference, gaps, conflicts. |
 | `references/markers/*.tsv`, `primary/*.tsv`, `secondary/*.tsv`, `characterized/*.tsv` | Checking why a gene is a marker. Read its `basis` and `evidence`. |
+| `references/proteomes.tsv`, `scripts/fetch_reference.sh` | Step 5: which reference hub (proteome with IDs matching the marker tables) to search for the target lineage; download and build it. |
+| `references/markers/celltype_aliases.tsv` | Merging synonymous cell-type names across tables (used by the scripts automatically). |
+| `references/annotation/araport11_genes.tsv.gz`, `rice_msu_rap.tsv.gz` | Arabidopsis gene symbols/descriptions (`--gene-annotation`, `--ref-annotation`); rice MSU7 ↔ RAP-DB ID conversion. |
+| `scripts/check_genes.py` | Any gene-level check (Steps 3, 7, 8b): symbols/IDs → every gene copy → per-cluster fraction, mean, z. Use it instead of typing IDs. |
+| `scripts/score_gene_sets.py` | Step 3 for labels published only per cluster: score the published clusters' marker lists in the current clusters. |
 | `references/stress/protoplasting_induced_Shahan2022.txt` | Judging whether a cluster is dissociation stress. |
 | `references/plant_pitfalls.md` | Reasoning about clusters: states vs types, ambient RNA, lineage-specific cell types, homology traps. |
 | `references/file_formats.md` | Writing annotation, expected-cell-type, marker, color, or gene-map tables. |

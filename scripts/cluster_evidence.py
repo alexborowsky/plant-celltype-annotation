@@ -4,12 +4,33 @@
 For every cluster key (default: all obs columns starting with 'leiden'):
   de_<key>.csv                 top Wilcoxon genes per cluster (+ homolog annotation, pct in/out)
   marker_expression_<key>.tsv  per cluster x marker gene: mean, frac expressing, z across clusters
-  marker_scores_<key>.tsv      per cluster x cell type: mean marker z, mean frac, n markers
+  marker_scores_<key>.tsv      cluster x cell type matrix of marker scores (mean marker z)
+  marker_score_details_<key>.tsv  long table: cluster, cell_type, score, frac, n_markers,
+                               n_detected (markers in >= --min-frac of the cluster), max_frac, n_function
   cluster_evidence_<key>.md    human/LLM-readable per-cluster summary
 plus cluster_hierarchy.tsv (nesting across keys) and evidence_plots.pdf.
 
 Expression is read from --layer, else adata.raw (if present), else adata.X, and
 must be log-normalized (not scaled).
+
+Markers: "in var_names" vs "found" (detected in >= 1 cell). Markers with zero counts
+in every cell are reported as not measurable and left out of the scores, like
+markers missing from var_names; a warning fires when >= 20% are missing or all-zero.
+
+Flags in cluster_evidence_<key>.md:
+  low counts / low genes   cluster median < 0.6x the dataset median (with the ratio to
+                           sibling clusters, i.e. same parent at the next coarser key)
+  low-QC candidate         counts AND genes < 0.6x both the dataset and sibling medians
+  possible doublets        two unrelated cell types co-score: each >= 1 (second >= 0.5
+                           when a doublet score is elevated), >= 2 detected and >= 2 driving
+                           markers (z >= 1 in >= 10% of cells), drivers not all
+                           expression-tier, no shared driving gene, not states, not related
+                           by name token, alias (references/markers/celltype_aliases.tsv)
+                           or lineage group, also through a third co-scoring type.
+                           Gates: counts >= 1.3x the dataset median and, with a per-cell
+                           doublet score (obs doublet_score / scrublet_score /
+                           scDblFinder.score, or --doublet-scores), a cluster median
+                           >= 1.5x the dataset median.
 """
 
 import argparse
@@ -145,7 +166,8 @@ def load_markers(paths):
             df['evidence'] = ''
         frames.append(df)
     df = pd.concat(frames, ignore_index=True).fillna('')
-    df['symbol'] = df['symbol'].where(~df['symbol'].str.strip().isin(['', '-']), df['gene_id'])
+    df['symbol'] = df['symbol'].map(clean_text)
+    df['symbol'] = df['symbol'].where(df['symbol'] != '', df['gene_id'])
     # One symbol per gene: the species' own name (same-species or user-curated rows, which have no
     # homology `via`) beats a reference-homolog name (Sobic SWEET13, not Arabidopsis SWEET11).
     via = df['via'] if 'via' in df.columns else pd.Series('', index=df.index)
@@ -162,22 +184,51 @@ def load_stress_genes(path):
 
 
 def stress_fraction(genes, gm, stress):
-    """Fraction of genes whose own ID or rank-1 reference homolog is in the stress list."""
+    """Fraction of genes whose own ID or rank-1 reference homolog (in any gene map) is in the stress list."""
     if not stress or not len(genes):
         return np.nan, 0
+    gms = gm if isinstance(gm, (list, tuple)) else [gm]
     hit = 0
     for g in genes:
         ids = {str(g).upper()}
-        if gm is not None and g in gm.index:
-            ids.add(str(gm.at[g, 'ref_gene']).upper())
+        for m in gms:
+            if m is not None and g in m.index:
+                ids.add(str(m.at[g, 'ref_gene']).upper())
         hit += bool(ids & stress)
     return hit / len(genes), hit
 
 
+# Araport / TAIR placeholders that must never be shown as a gene name or description.
+PLACEHOLDER = re.compile(r'^\s*(no (symbol|full name|description|name) available|none|nan|n/a|-)?\s*$',
+                         re.I)
+
+
+def clean_text(x):
+    """'' for NaN, empty and placeholder strings ('no symbol available', ...); else the stripped string."""
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return ''
+    s = str(x).strip()
+    return '' if PLACEHOLDER.match(s) else s
+
+
 def load_gene_map(path):
-    gm = pd.read_csv(path, sep='\t', dtype={'query_gene': str})
+    gm = pd.read_csv(path, sep='\t', dtype={'query_gene': str, 'ref_gene': str})
     gm = gm[gm['hit_rank'] == 1].drop_duplicates('query_gene').set_index('query_gene')
+    for c in ('ref_symbol', 'ref_description'):
+        if c in gm.columns:
+            gm[c] = gm[c].map(clean_text)
+        else:
+            gm[c] = ''
     return gm
+
+
+def gene_map_label(gm, path):
+    """Short tag for a secondary gene map: the commonest alphabetic prefix of its ref_gene IDs
+    (AT1G01010 -> AT, Mp1g00010 -> Mp, Os01g0100100 -> Os), else the file stem."""
+    pre = gm['ref_gene'].astype(str).str.extract(r'^([A-Za-z]+)', expand=False).dropna()
+    if len(pre):
+        return pre.str[:6].value_counts().index[0]
+    return os.path.splitext(os.path.basename(path))[0][:12]
 
 
 def load_gene_annotation(path):
@@ -186,27 +237,118 @@ def load_gene_annotation(path):
                       names=['gene_id', 'symbol', 'description']).fillna('')
     if ann.iloc[0, 0].lower() in ('gene_id', 'gene', 'locus', 'id'):
         ann = ann.iloc[1:]
+    ann['symbol'] = ann['symbol'].map(clean_text)
+    ann['description'] = ann['description'].map(clean_text)
     return ann.drop_duplicates('gene_id').set_index('gene_id')
 
 
-def homolog_str(gene, gm, max_desc=60, ann=None):
-    if gm is None or gene not in gm.index:
-        if ann is not None and gene in ann.index:
-            r = ann.loc[gene]
-            return ' '.join(x for x in (r['symbol'], r['description'][:max_desc]) if x)
-        return ''
-    r = gm.loc[gene]
-    sym = r.get('ref_symbol', '')
-    sym = '' if pd.isna(sym) else str(sym).split(',')[0]
-    desc = r.get('ref_description', '')
-    desc = '' if pd.isna(desc) else str(desc).split(',')[0][:max_desc]
+def _primary_hit_str(r, max_desc):
+    sym = clean_text(r.get('ref_symbol', '')).split(',')[0]
+    desc = clean_text(clean_text(r.get('ref_description', '')).split(',')[0])[:max_desc]
     out = f"{sym} ({r['ref_gene']})" if sym else str(r['ref_gene'])
     if desc:
         out += f" {desc}"
-    out += f" [{r['pident']:.0f}%"
+    try:
+        pid = float(r.get('pident', float('nan')))
+    except (TypeError, ValueError):
+        pid = float('nan')
+    rel = clean_text(r.get('relationship', '')) if 'relationship' in r else ''
+    if pid == pid:  # not NaN
+        out += f" [{pid:.0f}%"
+    else:  # orthology-table gene maps carry a relationship instead of % identity
+        out += ' [orthology' + (f' {rel}' if rel else '')
     if str(r.get('rbh', '')) == 'yes':
         out += ', RBH'
     return out + ']'
+
+
+def other_maps_str(gene, others):
+    """'[Mp: SYMBOL (MpXXX)] [Os: OsYYY]' from the secondary gene maps (label, gm)."""
+    parts = []
+    for label, g2 in others or []:
+        if gene in g2.index:
+            r = g2.loc[gene]
+            sym = clean_text(r.get('ref_symbol', '')).split(',')[0]
+            parts.append(f"[{label}: {sym} ({r['ref_gene']})]" if sym else f"[{label}: {r['ref_gene']}]")
+    return ' '.join(parts)
+
+
+def homolog_str(gene, gm, max_desc=60, ann=None, others=None):
+    """Primary gene-map hit (else the --gene-annotation name), plus secondary maps in brackets."""
+    if gm is None or gene not in gm.index:
+        out = ''
+        if ann is not None and gene in ann.index:
+            r = ann.loc[gene]
+            out = ' '.join(x for x in (r['symbol'], r['description'][:max_desc]) if x)
+    else:
+        out = _primary_hit_str(gm.loc[gene], max_desc)
+    extra = other_maps_str(gene, others)
+    return f"{out} {extra}".strip() if extra else out
+
+
+def load_aliases(path):
+    """alias -> canonical (lower case) from references/markers/celltype_aliases.tsv, if present."""
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        t = pd.read_csv(path, sep='\t', dtype=str, comment='#').fillna('')
+    except Exception as e:
+        print(f'  WARN could not read {path}: {e}')
+        return {}
+    if not {'alias', 'canonical'} <= set(t.columns):
+        return {}
+    out = {}
+    for a, c in zip(t['alias'], t['canonical']):
+        if a.strip() and c.strip():
+            out[a.strip().lower()] = c.strip().lower()
+            out.setdefault(c.strip().lower(), c.strip().lower())
+    return out
+
+
+# Cell types that describe a state, not an identity (never part of a doublet pair).
+STATE_TYPES = {'s_phase', 'dividing_cells', 'g2_m', 'g2m', 'senescing', 'protoplasting_stress'}
+STATE_RE = re.compile(r's_phase|g2_?m|dividing|cycling|mitotic|senesc|stress|heat_shock|wound', re.I)
+# Name tokens too generic to make two types related.
+NAME_STOP = {'cell', 'cells', 'like', 'type', 'pub', 'published', 'cluster', 'layer', 'zone', 'region', 'tissue',
+             'domain', 'other', 'unknown', 'and', 'of', 'the', 'mature', 'immature', 'young', 'early', 'late',
+             'putative', 'high', 'low', 'outer', 'inner', 'proximal', 'distal', 'basal', 'apical'}
+# Coarse lineage groups: two types in the same group are related, not a doublet pair.
+LINEAGE_GROUPS = [
+    ('epidermis', re.compile(r'epiderm|pavement|trichom|guard|stomat|subsidiary|trichoblast|root_hair|hair_cell|'
+                             r'protoderm|meristemoid', re.I)),
+    ('vascular', re.compile(r'phloem|sieve|companion|xylem|tracheary|vessel|procambi|cambium|vascular', re.I)),
+    ('ground tissue', re.compile(r'cortex|cortical|endoderm|ground_meristem', re.I)),
+    ('root_cap', re.compile(r'root_cap|columella|border', re.I)),
+    ('endosperm', re.compile(r'endosperm|aleurone', re.I)),
+    ('mesophyll', re.compile(r'mesophyll|palisade|spongy', re.I)),
+]
+
+
+def is_state(ct):
+    return str(ct).lower() in STATE_TYPES or bool(STATE_RE.search(str(ct)))
+
+
+def name_tokens(ct):
+    toks = set()
+    for t in re.split(r'[_\s/\-.,()+]+', str(ct).lower()):
+        t = re.sub(r'\d+$', '', t)
+        if len(t) > 2 and t not in NAME_STOP and not t.startswith('pub'):
+            toks.add(t)
+    return toks
+
+
+def related_types(a, b, aliases):
+    """Reason string if cell types a and b are related by name, alias or lineage, else ''."""
+    ca, cb = aliases.get(a.lower(), a.lower()), aliases.get(b.lower(), b.lower())
+    if ca == cb:
+        return 'aliases'
+    shared = (name_tokens(a) | name_tokens(ca)) & (name_tokens(b) | name_tokens(cb))
+    if shared:
+        return 'shared name ' + '/'.join(sorted(shared))
+    for name, rx in LINEAGE_GROUPS:
+        if (rx.search(a) or rx.search(ca)) and (rx.search(b) or rx.search(cb)):
+            return f'same lineage ({name})'
+    return ''
 
 
 def pick(obs, names):
@@ -291,10 +433,13 @@ def marker_tables(adata, M, found, key, markers, min_frac=0.02):
                          'mean': mean[i, j], 'frac': frac[i, j], 'z': z[i, j]})
     long = pd.DataFrame(long).drop_duplicates(['cluster', 'cell_type', 'gene_id'])
     long['is_function'] = long['evidence'] == 'function'
+    long['detected'] = long['frac'] >= min_frac
     scores = (long.groupby(['cluster', 'cell_type'])
               .agg(score=('z', 'mean'), frac=('frac', 'mean'), n_markers=('gene_id', 'nunique'),
+                   n_detected=('detected', 'sum'), max_frac=('frac', 'max'),
                    n_function=('is_function', 'sum'))
               .reset_index())
+    scores['n_detected'] = scores['n_detected'].astype(int)
     return long, scores
 
 
@@ -330,15 +475,95 @@ def hierarchy(adata, keys):
     return df.sort_values(['_k', '_o']).drop(columns=['_o', '_k'])
 
 
+def sibling_map(adata, key, keys):
+    """cluster -> list of sibling clusters (same majority parent at the next coarser resolution), and that key."""
+    r = resolution_of(key)
+    if not np.isfinite(r):
+        return {}, None
+    coarser = [k for k in keys if k != key and np.isfinite(resolution_of(k)) and resolution_of(k) < r]
+    if not coarser:
+        return {}, None
+    ck = max(coarser, key=resolution_of)
+    ct = pd.crosstab(adata.obs[key].astype(str), adata.obs[ck].astype(str))
+    parent = ct.idxmax(axis=1)
+    sib = {cl: [c for c in parent.index[parent == parent[cl]] if c != cl] for cl in parent.index}
+    return sib, ck
+
+
+DRIVER_Z, DRIVER_FRAC = 1.0, 0.1
+
+
+def doublet_check(cl, s, long, aliases, cratio, dratio, min_frac):
+    """Return a short flag string or ''.
+
+    Candidate types: score >= 1 (>= 0.5 for the second type when a per-cell doublet score is
+    elevated >= 1.5x), not a state, >= 2 detected markers and >= 2 driving markers (z >= 1 in
+    >= 10% of the cluster's cells), drivers not all expression-tier. A pair is skipped when the
+    two types share a driving gene or are related by name/alias/lineage, directly or through
+    another candidate type. Gates: counts ratio >= 1.3, and doublet-score ratio >= 1.5 if a
+    doublet score exists.
+    """
+    if cratio is None or not np.isfinite(cratio) or cratio < 1.3:
+        return ''
+    thr2 = 1.0
+    if dratio is not None:
+        if not np.isfinite(dratio) or dratio < 1.5:
+            return ''
+        thr2 = 0.5
+    lc = long[long['cluster'] == cl]
+    cand = []
+    for r in s.sort_values('score', ascending=False).itertuples():
+        if r.score < thr2 or is_state(r.cell_type) or r.n_detected < 2:
+            continue
+        g = lc[lc['cell_type'] == r.cell_type]
+        drv = g[(g['z'] >= DRIVER_Z) & (g['frac'] >= max(DRIVER_FRAC, min_frac))].sort_values('z', ascending=False)
+        if len(drv) < 2 or (drv['evidence'] == 'expression').all():
+            continue
+        cand.append((r.cell_type, r.score, set(drv['gene_id']), list(drv['symbol'])))
+    if not cand or cand[0][1] < 1.0:
+        return ''
+    # Related = shared driving gene or related names, transitively (Abaxial_Epidermis shares FIL
+    # with Spongy_Mesophyll, which is in the mesophyll lineage: Abaxial_Epidermis + Mesophyll is
+    # one programme, not two cells).
+    comp = list(range(len(cand)))
+
+    def root(i):
+        while comp[i] != i:
+            i = comp[i]
+        return i
+    for i in range(len(cand)):
+        for j in range(i + 1, len(cand)):
+            if cand[i][2] & cand[j][2] or related_types(cand[i][0], cand[j][0], aliases):
+                comp[root(j)] = root(i)
+    for i in range(len(cand)):
+        for j in range(i + 1, len(cand)):
+            (a, sa, ga, na), (b, sb, gb, nb) = cand[i], cand[j]
+            if sa < 1.0 or root(i) == root(j):
+                continue
+            why = [f"distinct markers {','.join(dict.fromkeys(na[:2]))} | {','.join(dict.fromkeys(nb[:2]))}"]
+            if cratio is not None:
+                why.append(f"counts x{cratio:.2f}")
+            if dratio is not None:
+                why.append(f"doublet score x{dratio:.1f}")
+            return f"possible doublets: {a} {sa:.2f} + {b} {sb:.2f} ({'; '.join(why)})"
+    return ''
+
+
 def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, n_show, ann=None, min_frac=0.02,
-                   stress=None, stress_flag=0.4, stress_inactive=False):
+                   stress=None, stress_flag=0.4, stress_inactive=False, keys=None, others=None, aliases=None,
+                   stress_maps=None):
     lab = adata.obs[key].astype(str)
     sizes = lab.value_counts()
     qc_glob = {k: adata.obs[c].median() for k, c in qc_cols.items()}
+    if 'doublet' in qc_cols and not qc_glob['doublet']:  # median 0 (e.g. scDblFinder): fall back to the mean
+        qc_glob['doublet'] = adata.obs[qc_cols['doublet']].mean()
+    sib, sib_key = sibling_map(adata, key, keys or [key])
+    aliases = aliases or {}
     with open(path, 'w') as f:
         f.write(f"# Cluster evidence: `{key}` ({len(sizes)} clusters, {adata.n_obs:,} cells)\n\n")
         f.write("Marker score = mean z (across clusters) of a cell type's marker genes' cluster means; "
-                "frac = mean fraction of cells expressing those markers. "
+                "frac = mean fraction of cells expressing those markers; det = markers detected in the cluster / "
+                "markers measured; `[1 gene]` = score rests on one detected marker. "
                 "`*` = marker with function evidence (characterized cell-type function).\n")
         f.write(f"Scores are capped by the number of clusters: the largest possible z with {len(sizes)} "
                 f"clusters is ~{np.sqrt(max(len(sizes) - 1, 1)):.1f}. Compare scores within this key, not across keys "
@@ -351,7 +576,9 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                 f.write("**Stress check inactive**: the stress list matched no gene in this dataset (no gene map "
                         "to Arabidopsis); stress fractions below are not informative.\n")
         if qc_cols:
-            f.write('QC shown as cluster median / dataset median: '
+            f.write('QC shown as cluster median (x dataset median'
+                    + (f'; sib x median of sibling clusters, i.e. clusters sharing its {sib_key} parent' if sib_key
+                       else '') + '): '
                     + ', '.join(f"{k}={qc_glob[k]:.3g} ({c})" for k, c in qc_cols.items()) + '\n')
         f.write('\n')
         for cl in sorted(sizes.index, key=natural_key):
@@ -370,18 +597,44 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                     elif enr >= 2 and row[lvl] >= 0.2:
                         flags.append(f"{m}={lvl} enriched x{enr:.1f}")
                 f.write(f"- **{m}**: " + ', '.join(parts) + '\n')
+            ratios, sratios = {}, {}
             if qc_cols:
                 qparts = []
+                smask = lab.isin(sib.get(cl, [])).to_numpy() if sib.get(cl) else None
                 for k, c in qc_cols.items():
                     med = adata.obs.loc[mask, c].median()
                     ratio = med / qc_glob[k] if qc_glob[k] else np.nan
-                    qparts.append(f"{k} {med:.3g} (x{ratio:.2f})")
+                    ratios[k] = ratio
+                    txt = f"{k} {med:.3g} (x{ratio:.2f}"
+                    if smask is not None and smask.any():
+                        smed = adata.obs.loc[smask, c].median()
+                        if k == 'doublet' and not smed:
+                            smed = adata.obs.loc[smask, c].mean()
+                        sratios[k] = med / smed if smed else np.nan
+                        txt += f"; sib x{sratios[k]:.2f}"
+                    qparts.append(txt + ')')
                     if k in ('counts', 'genes') and ratio < 0.6:
-                        flags.append(f"low {k}")
+                        if k in sratios and sratios[k] >= 0.6:
+                            flags.append(f"low {k} (but x{sratios[k]:.2f} of siblings)")
+                        else:
+                            flags.append(f"low {k}")
                 f.write('- **QC**: ' + ', '.join(qparts) + '\n')
+                if 'counts' in ratios and 'genes' in ratios and ratios['counts'] < 0.6 and ratios['genes'] < 0.6:
+                    n_before = len(flags)
+                    if sratios.get('counts') is not None and sratios.get('genes') is not None:
+                        if sratios['counts'] < 0.6 and sratios['genes'] < 0.6:
+                            flags.append(f"low-QC candidate (counts/genes x{ratios['counts']:.2f}/x{ratios['genes']:.2f} "
+                                         f"of dataset, x{sratios['counts']:.2f}/x{sratios['genes']:.2f} of siblings); "
+                                         f"compare with siblings before calling Low_Quality")
+                    elif not sib.get(cl):
+                        flags.append(f"low-QC candidate (counts/genes x{ratios['counts']:.2f}/x{ratios['genes']:.2f} "
+                                     f"of dataset; no sibling clusters); compare with siblings before calling "
+                                     f"Low_Quality")
+                    if len(flags) > n_before:  # the candidate flag replaces the separate low counts/genes ones
+                        flags = [x for x in flags if not x.startswith(('low counts', 'low genes'))]
             d = de[de['cluster'] == cl].head(n_show) if not de.empty else pd.DataFrame()
             if stress and len(d):
-                sfrac, shit = stress_fraction(list(d['gene']), gm, stress)
+                sfrac, shit = stress_fraction(list(d['gene']), stress_maps if stress_maps else gm, stress)
                 f.write(f"- **Stress**: {shit}/{len(d)} top DE genes protoplasting-induced ({sfrac:.0%})\n")
                 if sfrac >= stress_flag:
                     flags.append(f"dissociation-stress signature ({sfrac:.0%} of top DE)")
@@ -390,19 +643,15 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                 pcols = [c for c in h.columns if c.startswith('parent_') and h[c].notna().any()]
                 if len(h) and pcols:
                     f.write('- **Parents**: ' + ', '.join(f"{c[7:]}={h.iloc[0][c]}" for c in pcols) + '\n')
+            s_all = scores[scores['cluster'] == cl] if not scores.empty else pd.DataFrame()
+            if len(s_all):
+                dflag = doublet_check(cl, s_all, long, aliases, ratios.get('counts'), ratios.get('doublet'), min_frac)
+                if dflag:
+                    flags.append(dflag)
             if flags:
                 f.write('- **FLAGS**: ' + '; '.join(flags) + '\n')
-            if not scores.empty:
-                s = scores[scores['cluster'] == cl].sort_values('score', ascending=False).head(4)
-                STATE_TYPES = {'s_phase', 'dividing_cells', 'g2_m', 'g2m', 'senescing', 'protoplasting_stress'}
-                hi = s[(s['score'] >= 1) & ~s['cell_type'].str.lower().isin(STATE_TYPES)]
-                cratio = None
-                if 'counts' in qc_cols and qc_glob.get('counts'):
-                    cratio = adata.obs.loc[mask, qc_cols['counts']].median() / qc_glob['counts']
-                if len(hi) >= 2 and cratio is not None and cratio >= 1.3:
-                    flags.append(f"possible doublets: {hi.iloc[0]['cell_type']} + {hi.iloc[1]['cell_type']} "
-                                 f"both score >= 1 and counts x{cratio:.2f}")
-                    f.write('- **FLAGS**: ' + flags[-1] + '\n')
+            if len(s_all):
+                s = s_all.sort_values('score', ascending=False).head(4)
                 parts = []
                 for r in s.itertuples():
                     top = (long[(long['cluster'] == cl) & (long['cell_type'] == r.cell_type)]
@@ -412,13 +661,19 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                     drv = ','.join(f"{t.symbol}{'*' if t.is_function else ''}:{t.z:.1f} "
                                    f"({t.frac:.0%} vs {fout.get(t.gene_id, 0):.0%})"
                                    for t in top.itertuples())
-                    parts.append(f"{r.cell_type} {r.score:.2f} (frac {r.frac:.2f}; {drv})")
+                    one = ' [1 gene]' if r.n_detected == 1 else ''
+                    parts.append(f"{r.cell_type} {r.score:.2f}{one} (frac {r.frac:.2f}; det {r.n_detected}/{r.n_markers}"
+                                 f"; best {r.max_frac:.0%}; {drv})")
                 f.write('- **Marker scores**: ' + ' | '.join(parts) + '\n')
             if len(d):
                 f.write('\n| gene | logFC | pct in/out | homolog |\n|---|---|---|---|\n')
                 for r in d.itertuples():
-                    f.write(f"| {r.gene} | {r.logfc:+.2f} | {r.pct_in:.2f}/{r.pct_out:.2f} | "
-                            f"{homolog_str(r.gene, gm, ann=ann)} |\n")
+                    gname = r.gene
+                    in_gm = gm is not None and r.gene in gm.index
+                    if ann is not None and in_gm and r.gene in ann.index and ann.at[r.gene, 'symbol']:
+                        gname = f"{r.gene} ({ann.at[r.gene, 'symbol']})"
+                    f.write(f"| {gname} | {r.logfc:+.2f} | {r.pct_in:.2f}/{r.pct_out:.2f} | "
+                            f"{homolog_str(r.gene, gm, ann=ann, others=others)} |\n")
             f.write('\n')
 
 
@@ -478,7 +733,10 @@ def main():
                         'IDs, e.g. references/stress/protoplasting_induced_Shahan2022.txt')
     p.add_argument('--stress-flag', type=float, default=0.4,
                    help='flag clusters whose top DE genes are at least this fraction stress genes')
-    p.add_argument('--gene-map', default=None, help='gene_map.tsv from map_markers.py')
+    p.add_argument('--gene-map', nargs='+', default=None,
+                   help='one or more gene_map.tsv files from map_markers.py. The first is primary (its symbol and '
+                        'description are shown); hits from the others are appended as [<prefix>: SYMBOL (ID)], '
+                        'the prefix being the commonest letter prefix of that map\'s ref_gene IDs (AT, Mp, Os, ...)')
     p.add_argument('--gene-annotation', default=None,
                    help='gene_id<TAB>symbol<TAB>description for the dataset species (e.g. Phytozome annotation_info '
                         'columns); names DE genes when there is no gene map (same-species runs)')
@@ -495,6 +753,15 @@ def main():
     p.add_argument('--skip-de', action='store_true')
     p.add_argument('--skip-plots', action='store_true')
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--doublet-scores', default=None,
+                   help='per-cell doublet scores (TSV/CSV, cell barcode in the first column; column doublet_score, '
+                        'scrublet_score or scDblFinder.score, else the first numeric column), stored as '
+                        'obs[doublet_score]. Not needed when obs already has one of those columns. With a doublet '
+                        'score, the possible-doublet flag needs a cluster median >= 1.5x the dataset median')
+    p.add_argument('--aliases', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'references',
+                                                     'markers', 'celltype_aliases.tsv'),
+                   help='alias<TAB>canonical table; aliased cell types are never paired in the doublet flag '
+                        '(default: references/markers/celltype_aliases.tsv, skipped if missing)')
     p.add_argument('--import-labels', action='append', default=[],
                    help='path:col[:new_name] (repeatable), as in apply_annotations.py; e.g. '
                         'published per-cell labels to evaluate. Pass the new name in --cluster-keys')
@@ -510,6 +777,24 @@ def main():
         from apply_annotations import import_labels
         for spec in args.import_labels:
             import_labels(adata, spec)
+
+    if args.doublet_scores:
+        sep = ',' if args.doublet_scores.endswith('.csv') else '\t'
+        t = pd.read_csv(args.doublet_scores, sep=sep, index_col=0)
+        t.index = t.index.astype(str)
+        col = pick(t, QC_CANDIDATES['doublet']) or next(
+            (c for c in t.columns if pd.api.types.is_numeric_dtype(t[c]) and t[c].dtype != bool), None)
+        if col is None:
+            raise SystemExit(f'{args.doublet_scores}: no numeric doublet-score column')
+        match = adata.obs_names.isin(t.index).mean()
+        print(f'  doublet scores: {args.doublet_scores} column {col!r}, {match:.1%} of cells matched')
+        if match < 0.5:
+            print('  WARN <50% of cells have a doublet score: check barcode suffixes; doublet gate uses the matched cells')
+        for c in QC_CANDIDATES['doublet']:
+            if c in adata.obs.columns and c != 'doublet_score':
+                print(f'  NOTE obs[{c!r}] is ignored; using obs[doublet_score] from --doublet-scores')
+        adata.obs['doublet_score'] = t[col].reindex(adata.obs_names).astype(float).to_numpy()
+        QC_CANDIDATES['doublet'] = ['doublet_score']
 
     keys = args.cluster_keys or [c for c in adata.obs.columns if c.startswith('leiden')]
     keys = [k for k in keys if k in adata.obs.columns]
@@ -536,23 +821,49 @@ def main():
     if markers is not None:
         present = markers['gene_id'].isin(var_names) | \
             markers['gene_id'].map(lambda g: f'{g}_expr' in adata.obs.columns)
-        print(f'  markers: {present.sum()}/{len(markers)} found')
-        if (~present).any():
-            print('  WARN markers not in the data (not expressed, filtered, or ID mismatch), by cell type:')
-            for ct, g in markers[~present].groupby('cell_type'):
+        # Detected = nonzero in >= 1 cell. A gene in var_names with zero counts everywhere is not
+        # measurable here (filtered counts, unexpressed in this tissue, or reads lost to multimapping).
+        Mk0, found0 = gene_matrix(adata, X, var_names, markers.loc[present, 'gene_id'])
+        nnz = (np.asarray((Mk0 != 0).sum(0)).ravel() if found0 else np.zeros(0))
+        detected = {g for g, k in zip(found0, nnz) if k > 0}
+        del Mk0
+        expressed = markers['gene_id'].isin(detected)
+        zero = present & ~expressed
+        n_tot = len(markers)
+        print(f'  markers: {int(present.sum())}/{n_tot} in var_names, {int(expressed.sum())}/{n_tot} found '
+              f'(detected in >= 1 cell)')
+        def by_type(sub):
+            for ct, g in sub.groupby('cell_type'):
                 print(f"    {ct:24s} " + ', '.join(f"{s}({i})" if s != i else i
                                                    for s, i in zip(g['symbol'], g['gene_id'])))
-        none_left = sorted(set(markers['cell_type']) - set(markers.loc[present, 'cell_type']))
+        if (~present).any():
+            print('  WARN markers not in var_names (filtered upstream or ID mismatch), by cell type:')
+            by_type(markers[~present])
+        if zero.any():
+            print('  WARN markers in var_names but with 0 counts in every cell: not measurable here, by cell type:')
+            by_type(markers[zero])
+        miss = 1 - expressed.mean() if n_tot else 0
+        if miss >= 0.2:
+            print(f'  WARN {miss:.0%} of marker rows are missing or all-zero ({int((~present).sum())} not in '
+                  f'var_names, {int(zero.sum())} all-zero). Absent evidence for those types is not evidence of '
+                  f'absence: check the gene list (unfiltered object / .raw), ID versions, and the marker table')
+        none_left = sorted(set(markers['cell_type']) - set(markers.loc[expressed, 'cell_type']))
         if none_left:
-            print('  WARN cell types with NO marker present in the data: ' + ', '.join(none_left))
-        markers = markers[present]
+            print('  WARN cell types with NO measurable marker in the data: ' + ', '.join(none_left))
+        markers = markers[expressed]
 
-    gm = load_gene_map(args.gene_map) if args.gene_map else None
-    if gm is not None:
-        rate = var_names.isin(gm.index).mean()
-        print(f'  gene map covers {rate:.1%} of expression var_names')
+    gms = [load_gene_map(g) for g in (args.gene_map or [])]
+    gm = gms[0] if gms else None
+    others = [(gene_map_label(g, path), g) for g, path in zip(gms[1:], (args.gene_map or [])[1:])]
+    for i, (g, path) in enumerate(zip(gms, args.gene_map or [])):
+        rate = var_names.isin(g.index).mean()
+        tag = 'gene map' if i == 0 else f'gene map {i + 1} [{others[i - 1][0]}]'
+        print(f'  {tag} ({os.path.basename(path)}) covers {rate:.1%} of expression var_names')
         if rate < 0.5:
             print('  WARN <50% of var_names found in gene map: check --query-strip-regex in map_markers.py')
+    aliases = load_aliases(args.aliases)
+    if aliases:
+        print(f'  cell-type aliases: {len(aliases)} names from {args.aliases}')
 
     ann = load_gene_annotation(args.gene_annotation) if args.gene_annotation else None
     if ann is not None:
@@ -561,8 +872,8 @@ def main():
     stress_inactive = False
     if stress:
         ids = set(map(str.upper, var_names))
-        if gm is not None:
-            ids |= set(gm['ref_gene'].astype(str).str.upper())
+        for g in gms:
+            ids |= set(g['ref_gene'].astype(str).str.upper())
         n_match = len(stress & ids)
         print(f'  stress genes: {len(stress):,} ({n_match} matchable in this dataset)')
         if n_match == 0:
@@ -588,12 +899,28 @@ def main():
             de = run_de(adata, key, args.n_top, args.max_cells_per_cluster,
                         args.use_raw, args.layer, args.seed)
             de = add_pct(de, adata, X, var_names, key)
-            if gm is not None and not de.empty:
-                j = gm.reindex(de['gene'])
-                de['ref_gene'] = j['ref_gene'].to_numpy()
-                de['ref_symbol'] = j['ref_symbol'].to_numpy()
-                de['ref_description'] = j['ref_description'].to_numpy()
-                de['pident'] = j['pident'].to_numpy()
+            if (gm is not None or ann is not None) and not de.empty:
+                # ref_symbol / ref_description: primary gene-map hit, else the --gene-annotation name
+                sym = pd.Series('', index=de.index)
+                desc = pd.Series('', index=de.index)
+                if gm is not None:
+                    j = gm.reindex(de['gene'])
+                    de['ref_gene'] = j['ref_gene'].to_numpy()
+                    sym = pd.Series(j['ref_symbol'].map(clean_text).to_numpy(), index=de.index)
+                    desc = pd.Series(j['ref_description'].map(clean_text).to_numpy(), index=de.index)
+                    de['pident'] = j['pident'].to_numpy()
+                if ann is not None:
+                    a = ann.reindex(de['gene']).fillna('')
+                    de['symbol'] = a['symbol'].to_numpy()
+                    nohit = (sym == '') & (desc == '')
+                    if gm is not None:
+                        nohit &= de['ref_gene'].isna()
+                    sym = sym.where(~nohit, a['symbol'].to_numpy())
+                    desc = desc.where(~nohit, a['description'].to_numpy())
+                de['ref_symbol'] = sym.to_numpy()
+                de['ref_description'] = desc.to_numpy()
+                if others:
+                    de['other_homologs'] = [other_maps_str(g, others) for g in de['gene']]
             de.to_csv(os.path.join(args.output, f'de_{key}.csv'), index=False)
         long, scores = (marker_tables(adata, Mk, mk_found, key, markers, args.min_frac)
                         if markers is not None else (pd.DataFrame(), pd.DataFrame()))
@@ -604,10 +931,16 @@ def main():
             wide = wide.loc[sorted(wide.index, key=natural_key)]
             wide.to_csv(os.path.join(args.output, f'marker_scores_{key}.tsv'),
                         sep='\t', float_format='%.3f')
+            det = scores.copy()
+            det['_o'] = det['cluster'].map(natural_key)
+            det.sort_values(['_o', 'score'], ascending=[True, False]).drop(columns='_o').to_csv(
+                os.path.join(args.output, f'marker_score_details_{key}.tsv'), sep='\t', index=False,
+                float_format='%.3f')
         comp = composition(adata, key, meta)
         write_markdown(os.path.join(args.output, f'cluster_evidence_{key}.md'), key, adata,
                        de, long, scores, comp, hier, qc_cols, gm, args.n_show, ann=ann, min_frac=args.min_frac,
-                       stress=stress, stress_flag=args.stress_flag, stress_inactive=stress_inactive)
+                       stress=stress, stress_flag=args.stress_flag, stress_inactive=stress_inactive,
+                       keys=keys, others=others, aliases=aliases, stress_maps=gms)
         print(f'  wrote cluster_evidence_{key}.md')
 
     if not args.skip_plots:

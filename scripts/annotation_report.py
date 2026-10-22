@@ -6,14 +6,29 @@ strongest marker evidence present in the data:
   - UMAP highlighting the cell type
   - per marker: expression UMAP (viridis), violins across the clusters of the key
     that defined the label (annotated clusters highlighted), and a text panel with
-    the marker's evidence tier, homology, basis, and in-data enrichment
+    the marker's evidence tier, homology, basis, in-data enrichment and other copies
   - the annotation table's Evidence text for the rows that produced the label
-Markers are chosen by quality first (confidence, then evidence tier), among
-markers actually enriched in the cell type. Up to --max-markers are shown, so a
-page has at least one high-confidence marker or 2-3 weaker ones when that is
-all there is. Cell types with no enriched marker fall back to top DE genes,
-labeled as data-driven. Front pages: overview UMAP + summary table. Last page:
-dotplot of the shown markers by cell type.
+Marker choice: among table markers enriched in the cell type AND detected in at
+least --min-detect (default 10%) of its cells, markers are ranked by specificity,
+  max((f_in - f_out) * log2((f_in + 0.01) / (f_out + 0.01)), 0.5 * (mean_in - mean_out) * f_in),
+weighted up to 1.4x by evidence tier and confidence (tie-breakers). Markers of the
+type itself (or of an alias) come before token-related types. At least one
+function-tier marker is shown when one passes the floor. Enriched markers below the
+floor are listed in the text panel ("detected in <10%"); they are plotted only when
+no marker passes the floor. Up to --max-markers are shown, plus --extra-genes (genes
+a call rests on that are not in the marker tables, e.g. DE or hypothesis genes,
+labeled "extra (not in marker tables)", or "extra (table marker for X)"). Cell types with no enriched marker fall
+back to top DE genes, labeled as data-driven.
+Related marker types: exact names, --alias, and references/markers/celltype_aliases.tsv
+(alias, canonical) count as the type itself. Otherwise a marker type whose name
+tokens are a subset of the cell type's counts as related (Phloem for
+Phloem_Companion), except when the extra tokens name a distinct type: Xylem markers
+do not count for Xylem_Parenchyma, nor Phloem markers for Phloem_Pole_Pericycle.
+Gene names: --gene-map (several allowed, first primary) and --gene-annotation (target
+gene_id, symbol, description; used for genes without a gene-map hit). Araport
+placeholders ("no symbol available") are treated as empty.
+Front pages: overview UMAP (labels pushed apart, with leader lines when moved) and a
+summary table. Last page: dotplot of the shown genes by cell type.
 """
 
 import argparse
@@ -61,8 +76,9 @@ _pdf_palette_workaround()
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cluster_evidence import (expression_source, gene_matrix, load_gene_map, load_markers,  # noqa: E402
-                              natural_key, homolog_str)
+from cluster_evidence import (expression_source, gene_matrix, load_markers, natural_key)  # noqa: E402
+from check_genes import (GeneResolver, clean, find_ref_annotation, name_tokens, ref_key,  # noqa: E402
+                         SKILL_DIR)
 from apply_annotations import (parse_annotations, resolve_key, semantic_color,  # noqa: E402
                                FALLBACK_COLORS)
 
@@ -167,6 +183,50 @@ def plot_violins(ax, v, labels, highlight, max_cells, rng):
     return dict(zip(groups, fracs))
 
 
+def repel_labels(ax, anchors, texts, fontsize=7, pad=0.006, leader_min=0.012, max_iter=400, **kw):
+    """Direct labels at data-coordinate anchors, pushed apart until their boxes do not overlap.
+
+    Works in axes-fraction units (no adjustText dependency): overlapping pairs are nudged apart
+    along the axis of smaller overlap, labels are kept inside the axes, and a thin leader line
+    joins a label to its anchor when it moved more than leader_min."""
+    if not texts:
+        return []
+    fig = ax.figure
+    ax.apply_aspect()
+    to_ax = ax.transAxes.inverted()
+    pos0 = np.array([to_ax.transform(ax.transData.transform(a)) for a in anchors], dtype=float)
+    arts = [ax.text(x, y, t, transform=ax.transAxes, fontsize=fontsize, ha='center', va='center', zorder=5, **kw)
+            for (x, y), t in zip(pos0, texts)]
+    fig.canvas.draw()
+    rend = fig.canvas.get_renderer()
+    axbb = ax.get_window_extent(rend)
+    wh = np.array([[a.get_window_extent(rend).width / axbb.width, a.get_window_extent(rend).height / axbb.height]
+                   for a in arts])
+    pos = pos0.copy()
+    n = len(arts)
+    for _ in range(max_iter):
+        moved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = pos[i] - pos[j]
+                ov = (wh[i] + wh[j]) / 2 + pad - np.abs(d)
+                if ov[0] > 0 and ov[1] > 0:
+                    moved = True
+                    k = 1 if ov[1] <= ov[0] else 0  # labels are wide: usually separate vertically
+                    sgn = np.sign(d[k]) if d[k] != 0 else (1.0 if i < j else -1.0)
+                    step = ov[k] / 2 + 1e-4
+                    pos[i, k] += sgn * step
+                    pos[j, k] -= sgn * step
+        pos = np.clip(pos, wh / 2, 1 - wh / 2)
+        if not moved:
+            break
+    for a, p0, p in zip(arts, pos0, pos):
+        a.set_position(p)
+        if np.hypot(*(p - p0)) > leader_min:
+            ax.plot([p0[0], p[0]], [p0[1], p[1]], transform=ax.transAxes, lw=0.5, color='#444444', zorder=4)
+    return arts
+
+
 CLUSTER_COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#56B4E9', '#E69F00', '#F0E442',
                   '#4477AA', '#228833', '#AA3377', '#66CCEE', '#CCBB44', '#EE6677', '#555555']
 
@@ -188,11 +248,10 @@ def plot_cluster_key(fig, ax, axt, um, clus, cell_types, size, unknown_label):
         top = ct.index[0]
         share = ct.iloc[0] / m.sum()
         rows.append([g, f'{m.sum():,}', top if share >= 0.995 else f'{top} ({share:.0%})'])
-    for g in groups:
-        m = clus == g
-        ax.text(np.median(um[m, 0]), np.median(um[m, 1]), g, fontsize=6, ha='center', va='center',
-                fontweight='bold', bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none', alpha=0.75))
     umap_axes(ax)
+    repel_labels(ax, [(np.median(um[clus == g, 0]), np.median(um[clus == g, 1])) for g in groups], list(groups),
+                 fontsize=6, pad=0.002, fontweight='bold',
+                 bbox=dict(boxstyle='round,pad=0.1', fc='white', ec='none', alpha=0.75))
     axt.axis('off')
     tbl = axt.table(cellText=rows, colLabels=['Cluster', 'Cells', f'Cell type (share; {unknown_label} = unlabeled)'],
                     loc='upper left', cellLoc='left', colLoc='left', colWidths=[0.16, 0.18, 0.66])
@@ -205,9 +264,15 @@ def plot_cluster_key(fig, ax, axt, um, clus, cell_types, size, unknown_label):
             cell.set_text_props(fontweight='bold')
 
 
-def text_panel(ax, lines, width=40):
-    """Wrapped text that always fits its axes: the font shrinks (and wrap width grows) with line count."""
+def text_panel(ax, lines, width=None):
+    """Wrapped text that fits its axes: wrap width and font size (7 down to 4.5 pt) follow the axes'
+    physical size; text that still does not fit is cut with a "(truncated)" line.
+    Lines starting with ** are bold headings. width (chars) is an optional upper bound."""
     ax.axis('off')
+    fig = ax.figure
+    bb = ax.get_position()
+    w_pt = bb.width * fig.get_figwidth() * 72
+    h_pt = bb.height * fig.get_figheight() * 72
 
     def wrap(w):
         out = []
@@ -215,22 +280,25 @@ def text_panel(ax, lines, width=40):
             bold = ln.startswith('**')
             ln = ln.strip('*')
             wrapped = textwrap.wrap(ln, w) or ['']
-            out.extend([(t, bold and i == 0) for i, t in enumerate(wrapped)])
+            out.extend([(t, bold) for t in wrapped])
         return out
 
-    out, fs = wrap(width), 7.0
-    for _ in range(4):
-        step = min(0.075, 0.98 / max(len(out), 1))
-        fs = 7 if step >= 0.06 else max(4.5, 7 * step / 0.075)
-        new = wrap(int(width * 7 / fs))
-        if len(new) == len(out):
+    lead = 1.25  # line height in font sizes
+    for fs in (7.0, 6.5, 6.0, 5.5, 5.0, 4.5):
+        nchar = max(16, int(w_pt / (fs * 0.56)))
+        if width:
+            nchar = min(nchar, int(width * 7 / fs))
+        out = wrap(nchar)
+        if len(out) * fs * lead <= h_pt:
             break
-        out = new
-    step = min(0.075, 0.98 / max(len(out), 1))
+    max_lines = max(1, int(h_pt / (fs * lead)))
+    if len(out) > max_lines:
+        out = out[:max_lines - 1] + [('... (truncated; see the annotation table / evidence files)', False)]
+    step = fs * lead / max(h_pt, 1)
     y = 1.0
     for txt, bold in out:
         ax.text(0, y, txt, transform=ax.transAxes, va='top', ha='left', fontsize=fs,
-                fontweight='bold' if bold else 'normal', family='sans-serif', clip_on=True)
+                fontweight='bold' if bold else 'normal', family='sans-serif', clip_on=False)
         y -= step
 
 
@@ -258,23 +326,75 @@ def marker_stats(M, found, mask):
     return pd.DataFrame({'gene_id': found, 'mean_in': mi, 'mean_out': mo, 'frac_in': fi, 'frac_out': fo})
 
 
-def candidate_markers(markers, ct, aliases):
-    """Exact cell-type matches first, then related ones (alias or name-token subset)."""
+def load_celltype_aliases(path):
+    """alias -> canonical (lower case) from celltype_aliases.tsv (columns alias, canonical[, note]); {} if absent."""
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        t = pd.read_csv(path, sep='\t', dtype=str, comment='#').fillna('')
+    except Exception as e:  # a malformed shared file must not kill the report
+        print(f'  WARN cannot read {path}: {e}')
+        return {}
+    if 'alias' not in t.columns or 'canonical' not in t.columns:
+        print(f'  WARN {path}: need alias and canonical columns; ignored')
+        return {}
+    return {a.strip().lower(): c.strip().lower() for a, c in zip(t['alias'], t['canonical'])
+            if a.strip() and c.strip()}
+
+
+# A name token that makes a type distinct from the type named by the remaining tokens:
+# Xylem_Parenchyma is not Xylem, Phloem_Pole_Pericycle is not Phloem.
+DISTINCT_TOKENS = {'parenchyma', 'pericycle', 'fiber', 'fibre', 'sclerenchyma', 'collenchyma',
+                   'sheath', 'idioblast'}
+
+
+def _tokens(name):
+    return set(t for t in re.split(r'[_\s\-/]+', name.lower()) if t)
+
+
+def candidate_markers(markers, ct, aliases, ct_aliases=None):
+    """Exact cell-type matches first, then alias matches (--alias, alias table), then token-related ones."""
+    ct_aliases = ct_aliases or {}
+    canon = lambda n: ct_aliases.get(n.lower(), n.lower())
+    mtypes = markers['cell_type'].astype(str)
+    exact = markers[mtypes.str.lower() == ct.lower()].assign(match='exact')
     names = aliases.get(ct)
-    exact = markers[markers['cell_type'] == ct].assign(match='exact')
-    if names:
-        rel = markers[markers['cell_type'].isin(names)].assign(match='alias')
-    else:
-        toks = set(ct.lower().split('_'))
-        rel = markers[markers['cell_type'].map(
-            lambda c: c != ct and set(c.lower().split('_')) <= toks)].assign(match='related')
-    return pd.concat([exact, rel], ignore_index=True)
+    if names:  # explicit --alias: only these names (previous behaviour)
+        rel = markers[mtypes.isin(names) & (mtypes.str.lower() != ct.lower())].assign(match='alias')
+        return pd.concat([exact, rel], ignore_index=True)
+    same = mtypes.map(lambda c: c.lower() != ct.lower() and canon(c) == canon(ct))
+    alias_rows = markers[same].assign(match='alias')
+    toks = _tokens(ct)
+
+    def related(c):
+        if c.lower() == ct.lower() or canon(c) == canon(ct):
+            return False
+        ctoks = _tokens(c)
+        return bool(ctoks) and ctoks < toks and not ((toks - ctoks) & DISTINCT_TOKENS)
+    rel = markers[mtypes.map(related)].assign(match='related')
+    return pd.concat([exact, alias_rows, rel], ignore_index=True)
 
 
-def select_markers(cand, stats, n_max, min_delta, min_frac_ratio):
+def specificity(fi, fo, delta):
+    """Detection specificity, or level specificity for genes detected nearly everywhere."""
+    fi, fo, delta = np.asarray(fi, float), np.asarray(fo, float), np.asarray(delta, float)
+    det = np.clip(fi - fo, 0, None) * np.clip(np.log2((fi + 0.01) / (fo + 0.01)), 0, None)
+    lvl = 0.5 * np.clip(delta, 0, None) * fi
+    return np.maximum(det, lvl)
+
+
+def select_markers(cand, stats, n_max, min_delta, min_frac_ratio, min_detect=0.10):
+    """-> (shown, not_enriched, below_floor, all_rows).
+
+    shown: enriched markers detected in >= min_detect of the type, ranked by specificity
+    (evidence tier and confidence as tie-breakers), at least one function-tier marker if any
+    passes; when none passes the floor, the best enriched markers below it (flag below_floor)."""
+    empty = cand.iloc[0:0]
     if cand.empty:
-        return cand, cand
+        return empty, empty, empty, empty
     c = cand.merge(stats, on='gene_id', how='inner')
+    if c.empty:
+        return empty, empty, empty, empty
     c['delta'] = c['mean_in'] - c['mean_out']
     c['ratio'] = c['frac_in'] / np.maximum(c['frac_out'], 0.001)
     # Routes to "enriched": a clear expression gap, or a strong detection ratio for sparsely
@@ -287,16 +407,104 @@ def select_markers(cand, stats, n_max, min_delta, min_frac_ratio):
                      | ((c['delta'] >= STRONG_DELTA) & (c['frac_in'] >= STRONG_MIN_FRAC)))
     c['q_conf'] = c['confidence'].map(CONF).fillna(0)
     c['q_tier'] = c['evidence'].map(TIER).fillna(0)
-    c['q_match'] = (c['match'] == 'exact').astype(int)
-    c = c.sort_values(['q_match', 'q_conf', 'q_tier', 'delta'], ascending=False, kind='mergesort')
+    # Markers of the type itself or an alias first; token-related types only fill up
+    c['q_match'] = c['match'].isin(['exact', 'alias']).astype(int)
+    c['spec'] = specificity(c['frac_in'], c['frac_out'], c['delta'])
+    # Specificity ranks; tier and confidence only break near-ties (at most x1.4)
+    c['rank_score'] = c['spec'] * (1 + 0.1 * (c['q_tier'] + c['q_conf']))
+    c = c.sort_values(['q_match', 'rank_score'], ascending=False, kind='mergesort')
     c = c.drop_duplicates('gene_id')
-    good = c[c['enriched']]
-    # Paralog copies mapped from one reference locus share a symbol: show only the best copy.
-    good = good.drop_duplicates('symbol')
-    # Show the best markers; never let a related-type marker displace an exact one
+    c['below_floor'] = c['frac_in'] < min_detect
+    enr = c[c['enriched']]
+    # Paralog copies mapped from one reference locus share a symbol: rank only the best copy.
+    good = enr[~enr['below_floor']].drop_duplicates('symbol')
     shown = good.head(n_max)
-    not_enriched = c[~c['enriched'] & (c['match'] == 'exact')]
-    return shown, not_enriched
+    fn = good[good['evidence'] == 'function']
+    if len(fn) and not (shown['evidence'] == 'function').any() and n_max > 0:
+        # A page must show a function-tier marker when one is enriched and detectable
+        shown = pd.concat([shown.head(n_max - 1), fn.head(1)])
+    below = enr[enr['below_floor'] & ~enr['symbol'].isin(set(shown['symbol']))].drop_duplicates('symbol')
+    below = below.sort_values(['q_match', 'q_tier', 'q_conf', 'rank_score'], ascending=False, kind='mergesort')
+    if shown.empty and len(below):
+        # Nothing reaches the floor: show the best sparse markers, flagged as below it
+        shown = below.sort_values(['q_match', 'rank_score'], ascending=False, kind='mergesort').head(n_max)
+        below = below[~below['gene_id'].isin(set(shown['gene_id']))]
+    not_enriched = c[~c['enriched'] & c['match'].isin(['exact', 'alias'])]
+    return shown, not_enriched, below, c
+
+
+def target_symbol(g, res):
+    """Display name of a target gene: rank-1 reference symbol from the gene map, else the target
+    annotation's symbol (cluster_evidence semantics), else ''."""
+    if res.r1 is not None and g in res.r1.index:
+        s = name_tokens(res.r1.at[g, 'ref_symbol'])
+        return s[0] if s else str(res.r1.at[g, 'ref_gene'])
+    if res.ann is not None and g in res.ann.index:
+        s = name_tokens(res.ann.at[g, 'symbol'])
+        return s[0] if s else ''
+    return ''
+
+
+def _num(x):
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return np.nan
+    return x
+
+
+def identity_text(pident, relationship, via, rbh):
+    """'55% id, RBH' for BLAST hits; 'orthology (1:1)' when there is no identity (orthology tables)."""
+    pid = _num(pident)
+    if not np.isnan(pid):
+        return f"{pid:.0f}% id" + (', RBH' if str(rbh) == 'yes' else '')
+    rel = clean(relationship)
+    if rel:
+        return f"orthology ({rel})"
+    if str(via) == 'orthology':
+        return 'orthology' + (' (1:1)' if str(rbh) == 'yes' else '')
+    return 'identity n/a'
+
+
+def hom_line(r, res):
+    """Homology text for a marker row (empty for same-species rows)."""
+    if not clean(r['ref_gene']) or str(r['via']) == 'same_species':
+        return ''
+    rel = clean(r.get('relationship', ''))
+    if not rel and res.gm is not None and 'relationship' in res.gm.columns:
+        if not hasattr(res, '_rel'):
+            sub = res.gm[res.gm['relationship'] != '']
+            res._rel = dict(zip(zip(sub['query_gene'], sub['ref_key']), sub['relationship']))
+        rel = res._rel.get((r['gene_id'], ref_key(r['ref_gene'])), '')
+    rank = _num(r['hit_rank'])
+    rk = f" rank {int(rank)}" if not np.isnan(rank) else ''
+    return (f"Homolog: {r['ref_gene']}{rk}, {identity_text(r['pident'], rel, r['via'], r['rbh'])}"
+            + (f", via {r['via']}" if str(r['via']) == 'reverse_best' else ''))
+
+
+def gene_desc(g, res, max_desc=60):
+    """'SYM (AGI) description [55%, RBH]' from the gene map, else the target annotation's symbol/description."""
+    h = res.homolog_info(g)
+    if h:
+        r = res.r1.loc[g]
+        desc = (name_tokens(r['ref_description']) or [''])[0][:max_desc]
+        out = f"{h['ref_symbol']} ({h['ref_gene']})" if h['ref_symbol'] else str(h['ref_gene'])
+        return out + (f" {desc}" if desc else '') + f" [{identity_text(h['pident'], h['relationship'], '', h['rbh'])}]"
+    if res.ann is not None and g in res.ann.index:
+        r = res.ann.loc[g]
+        return ' '.join(x for x in (r['symbol'], r['description'][:max_desc]) if x)
+    return ''
+
+
+def other_copies(allc, sym, g, n=4):
+    """Other gene copies of a marker symbol among the candidates, with their detection in/out."""
+    if allc is None or not len(allc):
+        return ''
+    o = allc[(allc['symbol'] == sym) & (allc['gene_id'] != g)].drop_duplicates('gene_id')
+    if o.empty:
+        return ''
+    items = [f"{r.gene_id} ({r.frac_in:.0%} vs {r.frac_out:.0%})" for r in o.head(n).itertuples()]
+    return ', '.join(items) + (f", +{len(o) - n} more" if len(o) > n else '')
 
 
 def de_fallback(adata, key, cts, n_genes, use_raw, max_cells, rng):
@@ -327,15 +535,35 @@ def main():
     p.add_argument('--key', default='cell_type')
     p.add_argument('--annotations', required=True, help='annotation table used to label the cells')
     p.add_argument('--markers', nargs='+', required=True, help='target marker table(s) from map_markers.py')
-    p.add_argument('--gene-map', default=None, help='gene_map.tsv, for homolog labels on DE fallbacks')
+    p.add_argument('--gene-map', nargs='+', default=None,
+                   help='gene_map.tsv file(s) from map_markers.py (first is primary): homolog names for DE '
+                        'fallbacks and extra genes, symbol -> gene resolution, orthology relationships')
+    p.add_argument('--gene-annotation', nargs='+', default=None,
+                   help='target-species gene_id, symbol, description table(s) (as in cluster_evidence.py): '
+                        'names for genes without a gene-map hit')
+    p.add_argument('--ref-annotation', nargs='+', default=None,
+                   help='reference-species gene_id, symbol table(s) to resolve --extra-genes symbols '
+                        '(default: a shipped Araport11 table if present)')
     p.add_argument('--colors', default=None, help='CellType<TAB>Color table')
     p.add_argument('--alias', action='append', default=[],
                    help='AnnotatedType=MarkerType1,MarkerType2 (repeatable): marker cell types to use '
                         'for a differently named annotation, e.g. Procambium_Dividing=Procambium,Dividing_cells')
+    p.add_argument('--celltype-aliases', default=os.path.join(SKILL_DIR, 'references', 'markers',
+                                                              'celltype_aliases.tsv'),
+                   help='alias table (alias, canonical, note); names with the same canonical name count as '
+                        'the same type. Used if present; "" to disable')
+    p.add_argument('--extra-genes', action='append', default=[],
+                   help='CellType=GENE1,GENE2 (repeatable): genes a call rests on that are not in the marker '
+                        'tables (DE or hypothesis genes); target IDs or symbols resolved through the gene '
+                        'map / annotation / marker tables. Shown as "extra (not in marker tables)"')
+    p.add_argument('--max-extra', type=int, default=4, help='max extra genes shown per cell type')
     p.add_argument('--output', required=True, help='report PDF path')
     p.add_argument('--title', default=None)
     p.add_argument('--unknown-label', default='Unknown')
     p.add_argument('--max-markers', type=int, default=3)
+    p.add_argument('--min-detect', type=float, default=0.10,
+                   help='detection floor: a marker must be detected in at least this fraction of the cell '
+                        'type to be ranked (markers below are listed, and shown only if none passes)')
     p.add_argument('--qc-labels', default=r'(?i)^(low_quality|doublet|unresolved|ambient|exclude|qc_)',
                    help='regex for labels that are QC classes, not cell types (no page); "" to disable')
     p.add_argument('--min-delta', type=float, default=0.25,
@@ -364,15 +592,29 @@ def main():
 
     ann = parse_annotations(args.annotations)
     ann['obs_key'] = [resolve_key(s, set(adata.obs.columns)) for s in ann['key_spec']]
+    ref_ann = args.ref_annotation
+    if ref_ann is None and args.extra_genes:
+        auto = find_ref_annotation()
+        ref_ann = [auto] if auto else None
+    res = GeneResolver(var_names, adata.obs.columns, args.gene_map, args.markers, args.gene_annotation,
+                       ref_ann, max_rank=2)
+    if res.ann is not None:
+        print(f'  gene annotation covers {var_names.isin(res.ann.index).mean():.1%} of var_names')
     markers = load_markers(args.markers)
-    for c in ['evidence', 'confidence', 'basis', 'ref_gene', 'hit_rank', 'pident', 'rbh', 'via', 'source']:
+    for c in ['evidence', 'confidence', 'basis', 'ref_gene', 'hit_rank', 'pident', 'rbh', 'via', 'source',
+              'relationship']:
         if c not in markers.columns:
             markers[c] = ''
-    gm = load_gene_map(args.gene_map) if args.gene_map else None
+    # Placeholder or missing symbols: the target annotation's symbol, else the gene ID
+    markers['symbol'] = [clean(s) if clean(s) and s != g else (target_symbol(g, res) or g)
+                         for s, g in zip(markers['symbol'], markers['gene_id'])]
     aliases = {}
     for a in args.alias:
         k, v = a.split('=', 1)
         aliases[k] = [x for x in v.split(',') if x]
+    ct_aliases = load_celltype_aliases(args.celltype_aliases)
+    if ct_aliases:
+        print(f'  cell-type alias table: {len(ct_aliases)} aliases ({args.celltype_aliases})')
     pal = ct_colors(adata, args.key, args.colors)
 
     labels = adata.obs[args.key].astype(str).to_numpy()
@@ -386,10 +628,35 @@ def main():
     n_by = pd.Series(labels).value_counts()
     cts = sorted(cts, key=lambda c: (-n_by.get(c, 0), natural_key(c)))
     qc_cts = sorted(qc_cts, key=lambda c: (-n_by.get(c, 0), natural_key(c)))
-    Mk, mk_found = gene_matrix(adata, X, var_names, markers['gene_id'])
+
+    # --extra-genes: resolve every term to its copies in the data (never guessed)
+    extra_terms = {}
+    for e in args.extra_genes:
+        if '=' not in e:
+            sys.exit(f'--extra-genes expects CellType=GENE1,GENE2, got {e}')
+        k, v = e.split('=', 1)
+        hit = [c for c in cts + qc_cts if c.lower() == k.strip().lower()]
+        if not hit:
+            print(f'  WARN --extra-genes: cell type {k} not in {args.key}; ignored')
+            continue
+        extra_terms.setdefault(hit[0], [])
+        extra_terms[hit[0]] += [t for t in re.split(r'[,\s]+', v) if t]
+    extra_copies, extra_missing = {}, {}
+    for ct, terms in extra_terms.items():
+        for t in dict.fromkeys(terms):
+            cs = [d for d in res.resolve(t) if d['in_data']]
+            if cs:
+                extra_copies.setdefault(ct, []).append((t, cs))
+            else:
+                extra_missing.setdefault(ct, []).append(t)
+                print(f'  WARN --extra-genes {ct}: {t} resolves to no gene in the data; not shown')
+    xgenes = list(dict.fromkeys(d['gene_id'] for v in extra_copies.values() for _, cs in v for d in cs))
+
+    Mk, mk_found = gene_matrix(adata, X, var_names, list(markers['gene_id']) + xgenes)
     Mk = Mk.tocsr() if sparse.issparse(Mk) else Mk
     col = {g: i for i, g in enumerate(mk_found)}
-    print(f'  {len(cts)} cell types; {len(mk_found)} marker genes in data')
+    print(f'  {len(cts)} cell types; {len(set(markers["gene_id"]) & set(mk_found))} marker genes in data'
+          + (f'; {len(xgenes)} extra gene copies' if xgenes else ''))
 
     # ---- per cell type: choose key, clusters, markers
     plans = {}
@@ -407,11 +674,32 @@ def main():
             if n > best_n:
                 best_key, best_n, clusters = k, n, cls
         stats = marker_stats(Mk, mk_found, mask) if mk_found else pd.DataFrame(columns=['gene_id'])
-        shown, not_enriched = select_markers(candidate_markers(markers, ct, aliases), stats,
-                                             args.max_markers, args.min_delta, args.min_frac_ratio)
+        shown, not_enriched, below, allc = select_markers(
+            candidate_markers(markers, ct, aliases, ct_aliases), stats, args.max_markers,
+            args.min_delta, args.min_frac_ratio, args.min_detect)
+        # Extra genes: best copy (by specificity in this type) of each term, others listed
+        extras = []
+        st = stats.set_index('gene_id') if len(stats) else None
+        for t, cs in extra_copies.get(ct, []):
+            cs = [d for d in cs if st is not None and d['gene_id'] in st.index
+                  and d['gene_id'] not in set(shown['gene_id'])]
+            if not cs:
+                continue
+            sp = [float(specificity(st.at[d['gene_id'], 'frac_in'], st.at[d['gene_id'], 'frac_out'],
+                                    st.at[d['gene_id'], 'mean_in'] - st.at[d['gene_id'], 'mean_out']))
+                  for d in cs]
+            order = np.argsort(sp)[::-1]
+            best = cs[order[0]]
+            others = [(cs[i]['gene_id'], st.at[cs[i]['gene_id'], 'frac_in'], st.at[cs[i]['gene_id'], 'frac_out'])
+                      for i in order[1:]]
+            extras.append(dict(term=t, copy=best, others=others))
+        if len(extras) > args.max_extra:
+            print(f'  WARN {ct}: {len(extras)} extra genes, showing the first {args.max_extra}')
+            extras = extras[:args.max_extra]
         plans[ct] = dict(mask=mask, key=best_key, clusters=clusters, rows=rows, shown=shown,
-                         not_enriched=not_enriched)
-        if shown.empty:
+                         not_enriched=not_enriched, below=below, allc=allc, stats=st, extras=extras,
+                         extra_missing=extra_missing.get(ct, []))
+        if shown.empty and not extras:
             need_de.append(ct)
     print(f'  DE fallback for: {need_de}')
     de = de_fallback(adata, args.key, need_de, 10, args.use_raw, 2000, rng)
@@ -425,32 +713,45 @@ def main():
         fig = plt.figure(figsize=(8.5, 11))
         gs = GridSpec(2, 1, height_ratios=[1.25, 1], figure=fig, hspace=0.1)
         ax = fig.add_subplot(gs[0])
+        anchors, names = [], []
         for ct in list(adata.obs[args.key].cat.categories):
             m = labels == ct
             c = BACKGROUND if ct == args.unknown_label else pal[ct]
             ax.scatter(um[m, 0], um[m, 1], s=size, c=c, lw=0, rasterized=True, label=ct)
             if ct != args.unknown_label and m.sum():
-                cx, cy = np.median(um[m, 0]), np.median(um[m, 1])
-                ax.text(cx, cy, ct, fontsize=7, ha='center', va='center', color='black',
-                        bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.7))
+                anchors.append((np.median(um[m, 0]), np.median(um[m, 1])))
+                names.append(ct)
         umap_axes(ax)
+        # Labels of neighbouring types (Phloem_Parenchyma / Xylem_Parenchyma) are pushed apart
+        repel_labels(ax, anchors, names, fontsize=7, color='black',
+                     bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.8))
         # Direct labels identify cell types (colors alone cannot separate 10+ types for all
         # readers); only the Unknown grey needs a key.
         ax.text(0.0, 0.0, f'grey = {args.unknown_label}', transform=ax.transAxes, fontsize=7,
                 color='#555555', ha='left', va='bottom')
         fig.text(0.06, 0.97, args.title or f'Cell-type annotation report: {os.path.basename(args.h5ad)}',
                  fontsize=11, fontweight='bold')
-        fig.text(0.06, 0.955, f'{adata.n_obs:,} cells; annotation table {os.path.basename(args.annotations)}; '
-                 f'markers {", ".join(os.path.basename(m) for m in args.markers)}; '
-                 f'plant-celltype-annotation v{skill_version()}', fontsize=7)
+        sub = (f'{adata.n_obs:,} cells; annotation table {os.path.basename(args.annotations)}; '
+               f'markers {", ".join(os.path.basename(m) for m in args.markers)}; '
+               f'plant-celltype-annotation v{skill_version()}')
+        fig.text(0.06, 0.958, '\n'.join(textwrap.wrap(sub, 150)), fontsize=7, va='top')
         axt = fig.add_subplot(gs[1])
         axt.axis('off')
         for ct in cts:
             pl = plans[ct]
             sh = pl['shown']
-            best = (f"{sh.iloc[0]['symbol']} ({sh.iloc[0]['evidence']}, {sh.iloc[0]['confidence']})"
-                    if len(sh) else 'none enriched: DE only')
-            summary.append([ct, f"{pl['mask'].sum():,}", f"{pl['mask'].mean():.1%}", str(len(sh)), best])
+            if len(sh):
+                r0 = sh.iloc[0]
+                best = (f"{r0['symbol']} ({r0['evidence'] or 'no tier'}, {r0['confidence'] or '-'}; "
+                        f"{r0['frac_in']:.0%} vs {r0['frac_out']:.0%})"
+                        + (' <floor' if r0['below_floor'] else ''))
+            elif pl['extras']:
+                d = pl['extras'][0]
+                best = f"{d['term']}: extra gene only (not in marker tables)"
+            else:
+                best = 'none enriched: DE only'
+            nshow = f"{len(sh)}" + (f"+{len(pl['extras'])}x" if pl['extras'] else '')
+            summary.append([ct, f"{pl['mask'].sum():,}", f"{pl['mask'].mean():.1%}", nshow, best])
         for ct in qc_cts:
             m = labels == ct
             summary.append([ct, f"{m.sum():,}", f"{m.mean():.1%}", '-', 'QC class (no page)'])
@@ -494,9 +795,11 @@ def main():
             pl = plans[ct]
             mask, key, clusters = pl['mask'], pl['key'], pl['clusters']
             sh = pl['shown']
-            fallback = sh.empty
-            genes = list(sh['gene_id']) if not fallback else [g for g in de.get(ct, []) if g in var_names][:2]
-            n_rows = max(1, len(genes))
+            entries = [('marker', r) for _, r in sh.iterrows()] + [('extra', d) for d in pl['extras']]
+            fallback = not entries
+            if fallback:
+                entries = [('de', g) for g in de.get(ct, []) if g in var_names][:2]
+            n_rows = max(1, len(entries))
             fig = plt.figure(figsize=(8.5, 11))
             gs = GridSpec(1 + n_rows, 3, figure=fig, height_ratios=[1.6] + [1] * n_rows,
                           width_ratios=[1, 1.25, 1.15], hspace=0.4, wspace=0.3,
@@ -510,64 +813,84 @@ def main():
             lines = ['**Annotation rows (applied in file order)']
             for r in pl['rows'].itertuples():
                 lines.append(f"{r.key_spec} cluster {r.cluster}: {r.evidence or '(no Evidence text)'}")
+            bl = pl['below']
+            if len(bl):
+                lines.append(f"**Enriched but detected in <{args.min_detect:.0%} of these cells (not ranked)")
+                items = [f"{r.symbol} ({r.evidence or 'no tier'}, {r.confidence or '-'}; "
+                         f"{r.frac_in:.0%} vs {r.frac_out:.0%})" for r in bl.itertuples()]
+                lines.append(', '.join(items[:8]) + (f", and {len(items) - 8} more" if len(items) > 8 else ''))
             ne = pl['not_enriched']
             if len(ne):
                 lines.append('**Not enriched here (other markers, or other paralog copies of markers shown below)')
                 ne = ne.drop_duplicates('symbol')
                 items = [f"{r.symbol} ({r.evidence}, {r.confidence})" for r in ne.itertuples()]
                 lines.append(', '.join(items[:12]) + (f", and {len(items) - 12} more" if len(items) > 12 else ''))
+            if pl['extra_missing']:
+                lines.append('**Extra genes not found in the data or tables: ' + ', '.join(pl['extra_missing']))
             if fallback:
                 lines.append('**No enriched marker from the tables: showing top DE genes (data-driven only)')
-            text_panel(axt, lines, width=36)
+            text_panel(axt, lines)
 
             vlabels = adata.obs[key].astype(str).to_numpy() if key else labels
             vhigh = set(clusters) if key else {ct}
-            for i, g in enumerate(genes):
+            for i, (kind, item) in enumerate(entries):
                 j = 1 + i
+                g = item['gene_id'] if kind == 'marker' else item['copy']['gene_id'] if kind == 'extra' else item
                 if g in col:
                     v = Mk[:, col[g]]
                 else:
                     v, _ = gene_matrix(adata, X, var_names, [g])
                 v = v.toarray().ravel() if sparse.issparse(v) else np.asarray(v).ravel()
-                if fallback:
-                    sym = (homolog_str(g, gm).split(' ')[0] if gm is not None and g in gm.index else g)
-                    r = None
-                else:
-                    r = sh.iloc[i]
+                fin, fout = (v[mask] > 0).mean(), (v[~mask] > 0).mean()
+                min_, mout = v[mask].mean(), v[~mask].mean()
+                spec = float(specificity(fin, fout, min_ - mout))
+                indata = (f"In data: detected in {fin:.1%} of cells vs {fout:.1%} elsewhere "
+                          f"({fin / max(fout, 0.001):.0f}x); mean {min_:.2f} vs {mout:.2f}; specificity {spec:.2f}")
+                if kind == 'marker':
+                    r = item
                     sym = r['symbol']
+                    rel = '' if r['match'] in ('exact', 'alias') else f" [marker for {r['cell_type']}]"
+                    if r['match'] == 'alias' and str(r['cell_type']).lower() != ct.lower():
+                        rel = f" [alias: {r['cell_type']}]"
+                    tl = [f"**{sym}{rel}", f"{g}", f"Evidence: {r['evidence'] or '(none)'} / {r['confidence'] or '-'}"]
+                    hom = hom_line(r, res)
+                    if hom:
+                        tl.append(hom)
+                    tl += [f"Basis: {r['basis'] or '(none recorded)'}", indata]
+                    if r['below_floor']:
+                        tl.append(f"Below the detection floor (<{args.min_detect:.0%} of these cells): "
+                                  f"no marker reached it")
+                    oc = other_copies(pl['allc'], sym, g)
+                    if oc:
+                        tl.append('Other copies: ' + oc)
+                    if str(r['source']):
+                        tl.append(f"Source: {r['source']}")
+                elif kind == 'extra':
+                    d = item['copy']
+                    sym = item['term'] if item['term'].upper() != str(g).upper() else (target_symbol(g, res) or g)
+                    mt = sorted(set(markers.loc[markers['gene_id'] == g, 'cell_type']))
+                    tag = f"extra (table marker for {', '.join(mt)})" if mt else 'extra (not in marker tables)'
+                    tl = [f"**{sym}: {tag}", f"{g}",
+                          f"Resolved from '{item['term']}': {d['route']}",
+                          f"Homolog: {gene_desc(g, res) or 'none'}", indata]
+                    if item['others']:
+                        tl.append('Other copies: ' + ', '.join(f"{o} ({fi:.0%} vs {fo:.0%})"
+                                                               for o, fi, fo in item['others'][:4]))
+                else:
+                    sym = target_symbol(g, res) or g
+                    tl = [f"**{g}", f"Homolog: {gene_desc(g, res) or 'none'}",
+                          'Evidence: top DE gene only (not a curated marker)', indata]
                 axu = fig.add_subplot(gs[j, 0])
-                plot_expr_umap(axu, um, v, size, sym)
+                plot_expr_umap(axu, um, v, size, sym if kind != 'extra' else f'{sym} (extra)')
                 axv = fig.add_subplot(gs[j, 1])
                 plot_violins(axv, v, vlabels, vhigh, args.max_cells_violin, rng)
                 axv.set_xlabel(key or args.key, fontsize=7)
-                fin, fout = (v[mask] > 0).mean(), (v[~mask] > 0).mean()
-                min_, mout = v[mask].mean(), v[~mask].mean()
                 axx = fig.add_subplot(gs[j, 2])
-                if r is not None:
-                    hom = ''
-                    if str(r['ref_gene']) and str(r['via']) != 'same_species':
-                        hom = (f"Homolog: {r['ref_gene']} rank {r['hit_rank']}, {r['pident']}% id"
-                               + (', RBH' if str(r['rbh']) == 'yes' else '')
-                               + (f", via {r['via']}" if str(r['via']) == 'reverse_best' else ''))
-                    rel = '' if r['match'] == 'exact' else f" [marker for {r['cell_type']}]"
-                    tl = [f"**{sym}{rel}", f"{g}", f"Evidence: {r['evidence']} / {r['confidence']}"]
-                    if hom:
-                        tl.append(hom)
-                    tl += [f"Basis: {r['basis'] or '(none recorded)'}",
-                           f"In data: detected in {fin:.1%} of cells vs {fout:.1%} elsewhere "
-                           f"({fin / max(fout, 0.001):.0f}x); mean {min_:.2f} vs {mout:.2f}"]
-                    if str(r['source']):
-                        tl.append(f"Source: {r['source']}")
-                else:
-                    tl = [f"**{g}", f"Homolog: {homolog_str(g, gm) or 'none'}",
-                          'Evidence: top DE gene only (not a curated marker)',
-                          f"In data: detected in {fin:.1%} of cells vs {fout:.1%} elsewhere "
-                           f"({fin / max(fout, 0.001):.0f}x); mean {min_:.2f} vs {mout:.2f}"]
-                text_panel(axx, tl, width=46)
+                text_panel(axx, tl)
                 shown_all.setdefault(ct, []).append((g, sym))
             pdf.savefig(fig)
             plt.close(fig)
-            print(f'  page: {ct} ({len(genes)} {"DE" if fallback else "marker"} gene(s))')
+            print(f'  page: {ct} ({len(entries)} {"DE" if fallback else "marker/extra"} gene(s))')
 
         # Dotplot of shown markers
         # Built from a small matrix of just the shown genes so axis labels can be marker symbols

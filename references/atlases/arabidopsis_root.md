@@ -89,7 +89,7 @@ Protophloem and metaphloem are not split, and protoxylem and metaxylem share the
 
 **Shahan 2022** is the best label reference for the primary root tip. It has small per-cell tables, four labelling methods and literature markers with loci.
 - Adopt its Atrichoblast, Trichoblast, Cortex, Endodermis and Protoxylem labels.
-- Treat Columella, LRC, QC, Pericycle, Procambium, Metaxylem and the phloem labels as hypotheses. Keep only cells in its consensus (`cb.anno`) that have marker support.
+- Treat Columella, LRC, QC, Pericycle, Procambium, Metaxylem and the phloem labels as hypotheses. Keep only cells in its consensus (`cb.anno`) that have marker support: drop cells whose `cb.anno` contains "Unknown" (36% of cells, 92% of Columella; skill test A, 2026-10-22). If you decline this filter, say so in `evaluation.tsv`.
 
 **Lyu 2025** is the reference for secondary-growth roots: cambium, periderm, xylem and phloem parenchyma, myrosin idioblasts and SE/CC. Its labels must be rebuilt from the 2.3 GB rds with the figshare cluster map. Its reporter genes are its most reusable product.
 
@@ -151,7 +151,7 @@ Three reviews were merged: Li 2016 and Otero 2022 (this run) and Roszak 2021 (an
 | Dataset | Material | Platform | Cells | Gene IDs | Label access | Quality |
 |---|---|---|---|---|---|---|
 | Li et al. 2016 *Dev Cell* ([10.1016/j.devcel.2016.10.012](https://doi.org/10.1016/j.devcel.2016.10.012)); companion microarray Brady 2007 *Science*, GEO GSE8934 | Col-0 5-6 d roots: 15 GFP-reporter sorted populations, sorted and unsorted whole root, 3 dissected zones, CHX/mock | FACS + Illumina RNA-seq, 3 reps (57 libraries) | Bulk populations | TAIR10 | Population level only. No SRA accession found | High. Bulk marker and agreement source, not a label source |
-| Otero et al. 2022 *Nat Plants* ([10.1038/s41477-022-01178-y](https://doi.org/10.1038/s41477-022-01178-y)); GEO GSE181999 | Col-0 root phloem pole: 6 reporter sorts (MAKR5 tip and whole root, S17, sAPL, APL, PEAR1-del) | FACS + 10x scRNA-seq | 10,204 | TAIR10 | Small table: per-cell labels in `Otero2022/cell_metadata.csv` (1.1 MB, GitHub release v2022.09.04). The 522.6 MB SCE rds was not downloaded | High. No replicate sorts; proportions reflect the sorting |
+| Otero et al. 2022 *Nat Plants* ([10.1038/s41477-022-01178-y](https://doi.org/10.1038/s41477-022-01178-y)); GEO GSE181999 | Col-0 root phloem pole: 6 reporter sorts (MAKR5 tip and whole root, S17, sAPL, APL, PEAR1-del) | FACS + 10x scRNA-seq | 10,204 | TAIR10 | Small table: per-cell labels in `cell_metadata.csv` (1.1 MB), https://github.com/tavareshugo/publication_Otero2022_PhloemPoleAtlas/releases/download/v2022.09.04/cell_metadata.csv (release v2022.09.04; URL checked 2026-10-22). The 522.6 MB SCE rds was not downloaded | High. No replicate sorts; proportions reflect the sorting |
 | Roszak et al. 2021 *Science* ([10.1126/science.aba5531](https://doi.org/10.1126/science.aba5531)); GEO GSE140778, GSE142259 | Col-0 5 d root tip: 7 phloem reporter sorts | FACS + Smart-seq2 (plates), plus bulk sorted PSE | 1,242 pass QC (758 PSE) | TAIR10 | Population level: GEO gate labels only; the per-cell calls (Table S17) are inaccessible | High, but phloem lineage only. All supplements blocked |
 
 DOIs were confirmed in Europe PMC (PMIDs 27840108, 35927456, 34941412).

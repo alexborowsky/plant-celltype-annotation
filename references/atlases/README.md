@@ -39,6 +39,7 @@ One file per group, from the survey collations (2026-10-19/20, updated with gap-
 | [lotus_root](lotus_root.md) | primary | 2 | 45 | 9 | 31 | 12 |
 | [maize_root](maize_root.md) | primary | 4 | 65 | 9 | 16 | 14 |
 | [rice_seed](rice_seed.md) | primary | 3 | 64 | 9 | 20 | 14 |
+| [rice_root](rice_root.md) | core (`markers/rice_root.tsv`) | 6 | 46 | 12 | 19 | 16 |
 | [lotus_nodule](lotus_nodule.md) | secondary | 1 | 24 | 14 | 17 | 5 |
 | [catharanthus_leaf](catharanthus_leaf.md) | secondary | 1 | 39 | 13 | 14 | 11 |
 | [barley_inflorescence](barley_inflorescence.md) | secondary | 1 | 42 | 7 | 31 | 23 |

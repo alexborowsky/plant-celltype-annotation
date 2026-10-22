@@ -1,0 +1,38 @@
+alias	canonical	note
+Seed_Coat_Endothelium	Endothelium	Innermost seed-coat layer (ii1); arabidopsis_endosperm vs arabidopsis_seed and characterized names
+Phloem_Idioblast	Myrosin_Idioblast	Brassicales myrosin cells are phloem idioblasts (TGG1/TGG2, FAMA-dependent)
+Myrosin_Cell	Myrosin_Idioblast	Published-label spelling
+Phloem_Sieve_Element	Sieve_Element	Same cell type (soybean_root naming); Protophloem_Sieve_Element is a subtype and is not aliased
+Companion_Cell	Phloem_Companion	Published-label spelling
+Phloem_Companion_Cell	Phloem_Companion	Published-label spelling
+LRC	Lateral_Root_Cap	Abbreviation (Guillotin 2023 source table)
+Columella_And_Lateral_Root_Cap	Root_Cap	Whole root cap (columella + LRC); Columella and Lateral_Root_Cap alone are subtypes and are not aliased
+Root_Hair	Trichoblast	Root-hair (H) epidermal cell
+Root_Hair_Cell	Trichoblast	Root-hair (H) epidermal cell
+Hair_Cell	Trichoblast	Root-hair (H) epidermal cell (root datasets)
+Non_Hair	Atrichoblast	Non-hair (N) root epidermal cell
+Non_Hair_Cell	Atrichoblast	Non-hair (N) root epidermal cell
+Nonhair	Atrichoblast	Non-hair (N) root epidermal cell
+QC	Quiescent_Center	Abbreviation
+Guard_Cell	Guard	Published-label spelling
+Pavement_Cell	Pavement	Published-label spelling
+Bundle_Sheath_Cell	Bundle_Sheath	Published-label spelling
+G2_M	Dividing_cells	Guillotin 2023 mitotic cluster name, renamed Dividing_cells in sorghum_root_Guillotin2023.tsv; S_Phase stays separate
+Stomatal_Lineage	Stomatal_lineage	Case variant
+Endosperm_Adjacent_To_Scutellum	Endosperm_Adjacent_to_Scutellum	Case variant (EAS)
+Protodermal	Protoderm	Spelling variant (nbenthamiana_leaf)
+Shoot_Meristem	Shoot_Apical_Meristem	Same STM/KN1 meristem population in the survey tables
+SAM	Shoot_Apical_Meristem	Abbreviation
+Central_Zone	SAM_Central_Zone	Meristem central zone (CLV3/FON2/ZmCLE7); also used for inflorescence meristems
+Meristem_Central_Zone	SAM_Central_Zone	Meristem central zone (rice FON2 row)
+Vasculature	Vascular	Undivided vascular cluster
+Vascular_Bundle	Vascular	Undivided vascular cluster (strawberry_fruit)
+Vascular_Cambium	Cambium	Same meristem (Arabidopsis vs Populus naming)
+Cork	Phellem	Synonym
+Stigma_Style	Style_And_Stigma	Same combined label (rice_inflorescence)
+Seed_Coat_Epidermis	Seed_Coat_Outer_Epidermis	Outermost seed-coat layer (oi2; mucilage/palisade layer)
+Outer_Integument_2	Seed_Coat_Outer_Epidermis	oi2 = outer layer of the outer integument = seed-coat outer epidermis
+Outer_Integument_Outer_Layer	Seed_Coat_Outer_Epidermis	oi2 (characterized INO row)
+Root_Cap_Border_Like_Cells	Border_Cell	Arabidopsis border-like cells are the counterpart of detached root-cap border cells in other species
+Root_Cap_Periphery_Border_Like_Cells	Border_Cell	As above
+Root_Border_Cells_Root_Cap_Periphery	Border_Cell	As above
