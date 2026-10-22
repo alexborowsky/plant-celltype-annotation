@@ -653,16 +653,26 @@ cluster:
    SUC2 → companion cell; XCP/IRX/cellulose synthases → xylem; histones →
    S phase; cyclin B / KNOLLE → G2/M; PR proteins → defense state. If DE
    contradicts the score, trust DE and investigate.
-   - **Cell-death programs are not automatically senescence.** Papain-like
-     cysteine proteases (XCP1/2, RD21, CEP1), MC9-type metacaspases,
-     nucleases (BFN1) and VND-interacting NACs mark *developmental* PCD:
-     differentiating xylem (tracheary elements) next to a procambium or
-     vascular cluster, tapetum in anthers, root cap. Call **senescence** only
-     with senescence evidence: SAG12, chlorophyll breakdown (SGR, NYC1, PAO)
-     *and* declining photosynthesis/ribosome programs, in an old organ. A
-     rice panicle test labelled differentiating xylem (MC9 homolog 51% vs
-     4%, CEP1/RD21) "Senescing" and so missed xylem entirely.
-4. **Resolution.** Rare types (guard, xylem, companion cells, trichomes)
+   - **Cell-death programs are not automatically senescence, and not
+     automatically xylem.** Papain-like cysteine proteases (RD21, CEP1),
+     MC9-type metacaspases and nucleases (BFN1) mark *developmental* PCD,
+     which happens in differentiating xylem, tapetum, root cap, nucellus and
+     degenerating organs. Call **senescence** only with senescence evidence
+     (SAG12, chlorophyll breakdown *and* declining photosynthesis/ribosome
+     programs, in an old organ). Call **xylem** only with xylem identity
+     genes (VND/NAC, XCP1/2, ACL5, WAT1, secondary-wall CESA4/7/8, IRX)
+     enriched in the cells, plus adjacency to procambium; PCD genes alone
+     are not enough. In a rice panicle test the xylem was a 182-cell subset
+     *inside the procambium cluster* (ACL5 35% vs 5%, XCP2 RBH 15% vs ≤2%,
+     WAT1, VND-like 26%, PXY), found only by subclustering it; a separate
+     PCD cluster (MC9 homolog 51%) had no xylem identity genes and was not
+     xylem.
+4. **Resolution.** When a function marker of an expected-but-missing type
+   is enriched only "in a subset" of a cluster (the evidence shows it at
+   10–20% of the cluster and ~0% elsewhere), subcluster that cluster
+   (Step 8, `--recompute-pca --batch-key sample`) and check the type's
+   markers per subcluster before labelling the whole cluster. Rare types
+   (guard, xylem, companion cells, trichomes)
    often separate only at high resolution. Common types (mesophyll) are
    often split into state sub-clusters at high resolution, so label them at
    low resolution. Use `cluster_hierarchy.tsv` to choose the level.

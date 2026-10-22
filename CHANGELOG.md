@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.2.1] - 2026-10-22
+
+### Fixed
+- **Xylem vs cell-death guidance:** the 0.2.0 text claimed that a rice panicle cell-death cluster was differentiating
+  xylem. A re-run rejected that on evidence (no VND/XCP/CESA in it), and the xylem turned out to be a 182-cell subset of
+  the procambium cluster (ACL5, XCP2, WAT1, VND-like, PXY), found by subclustering. SKILL.md, the pitfalls file and the
+  rice inflorescence atlas note now say:
+  - cell-death genes alone are neither senescence nor xylem; xylem needs identity genes and adjacency to procambium;
+  - subcluster a cluster when an expected-but-missing type's marker is enriched only in a subset of it.
+- `check_genes.py` resolves symbols through the aliases column of the Araport11 table (VND2, CESA7, CESA8, ATHB8...).
+
 ## [0.2.0] - 2026-10-22
 
 Fixes from a 22-run test round (benchmarks, high- and low-quality published annotations, non-model species).

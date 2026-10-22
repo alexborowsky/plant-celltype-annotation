@@ -79,9 +79,12 @@
 - **Developmental cell death looks like senescence.** Tracheary elements
   (and tapetum, root cap, nucellus) die by programmed cell death using
   papain-like cysteine proteases (XCP1/2, RD21, CEP1), MC9-type metacaspases
-  and nucleases (BFN1). Next to a procambium or vascular cluster this
-  program means *differentiating xylem*. Senescence needs SAG12, chlorophyll
-  breakdown and falling photosynthesis in an old organ.
+  and nucleases (BFN1). Senescence needs SAG12, chlorophyll breakdown and
+  falling photosynthesis in an old organ. Xylem needs xylem identity genes
+  (VND/NAC, XCP, ACL5, WAT1, secondary-wall CESAs) in the same cells and
+  adjacency to procambium; in young organs xylem precursors often sit as a
+  small subset inside the procambium cluster (subcluster it), while a PCD
+  cluster without those genes belongs to another dying tissue.
 
 ## Composition and batch
 - A cluster in which >80% of cells come from one sample, or a treatment

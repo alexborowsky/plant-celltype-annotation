@@ -102,14 +102,14 @@ def rank1_map(gm):
 
 
 def load_annotation_tables(paths):
-    """gene_id<TAB>symbol<TAB>description (header optional; first file wins), placeholders cleaned."""
+    """gene_id<TAB>symbol<TAB>description[<TAB>aliases] (header optional; first file wins), placeholders cleaned."""
     frames = []
     for p in paths or []:
         t = pd.read_csv(p, sep='\t', header=None, dtype=str, comment=None).fillna('')
-        t = t.iloc[:, :3]
-        while t.shape[1] < 3:
+        t = t.iloc[:, :4]  # optional 4th column: aliases (e.g. CESA7 for IRX3, VND2 for NAC076)
+        while t.shape[1] < 4:
             t[t.shape[1]] = ''
-        t.columns = ['gene_id', 'symbol', 'description']
+        t.columns = ['gene_id', 'symbol', 'description', 'aliases']
         if t.iloc[0, 0].strip().lower() in ('gene_id', 'gene', 'locus', 'id', 'locus_id', 'query_gene'):
             t = t.iloc[1:]
         t['gene_id'] = t['gene_id'].str.strip()
@@ -185,8 +185,8 @@ class GeneResolver:
                     self.ref_desc.setdefault(t.upper(), set()).add(k)
         self.refann_sym = {}
         if self.ref_ann is not None:
-            for g, s in zip(self.ref_ann.index, self.ref_ann['symbol']):
-                for t in name_tokens(s) + ([clean(s)] if clean(s) else []):
+            for g, s, al in zip(self.ref_ann.index, self.ref_ann['symbol'], self.ref_ann['aliases']):
+                for t in name_tokens(s) + ([clean(s)] if clean(s) else []) + name_tokens(al):
                     self.refann_sym.setdefault(t.upper(), set()).add(ref_key(g))
 
     # -- symbol / homolog helpers used by the report
