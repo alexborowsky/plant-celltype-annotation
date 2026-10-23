@@ -1,6 +1,6 @@
 # plant-celltype-annotation
 
-> **In development (v0.4.0, pre-release).** This skill is being tested and changes often. Feedback is
+> **In development (v0.5.0, pre-release).** This skill is being tested and changes often. Feedback is
 > very welcome: please open an issue with what you ran (species, tissue, cells
 > or nuclei), what worked, and where the annotation or the instructions went
 > wrong.
@@ -45,6 +45,7 @@ The curated data isn't available in one place elsewhere:
   - `annotation_report.py`;
   - `check_genes.py`: gene-level checks by symbol or ID through the gene maps;
   - `score_gene_sets.py`: scores labels published only per cluster;
+  - `type_under_state.py`: the cell type of a state cluster, judged on genes the state does not change;
   - `fetch_reference.sh`: downloads and builds a reference proteome hub;
   - `lineage_tags.py`.
 - `references/markers/`: marker tables with evidence tiers (`function`,
@@ -71,7 +72,7 @@ Clone a release into your Claude Code skills folder (see
 [Releases](https://github.com/alexborowsky/plant-celltype-annotation/releases) and `CHANGELOG.md`):
 
 ```bash
-git clone --branch v0.4.0 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
+git clone --branch v0.5.0 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
 ```
 
 Omit `--branch` to follow the latest development version on `main`. On claude.ai, upload the

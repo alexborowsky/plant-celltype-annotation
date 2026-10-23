@@ -730,6 +730,30 @@ cluster:
    it (`--recompute-pca`), score type markers within it, or follow its
    cells' parent clusters at a coarser resolution. Then write type rows for
    the parts plus a state-only row for the whole cluster.
+10. **A state can hide its type's markers.** Defense, stress and cell-cycle
+   programs often lower the identity genes, and the promoter reporters, of
+   the type they sit in. "The type's marker is not enriched" in a state
+   cluster is therefore not evidence for another type. Before leaving a state
+   cluster `Unknown`, judge its type on the genes the state does not change:
+   ```bash
+   python scripts/type_under_state.py --h5ad adata.h5ad --query Defense=c1:2,4,5 \
+       --candidate Bundle_Sheath=c1:0,1 --candidate "Mesophyll=leiden_res0.3:0&cell_state:none" \
+       [--control Other=c1:3] [--genes <marker IDs>] [--reporters <transgene>_expr] \
+       [--reporter-cells "Treatment:<treated groups>"] --gene-map gene_map.tsv --out checks/defense_type
+   ```
+   It learns each candidate pair's own genes at matched depth, leaves out
+   genes the query induces or represses, and places the query on a 0–1 scale
+   (median candidate B = 0, A = 1). In a leaf atlas, defense-state cells
+   whose bundle-sheath reporter had fallen to mesophyll level scored 0.85
+   (bundle-sheath core 1, mesophyll 0) and kept the core's own genes:
+   `Bundle_Sheath` + `Defense_Response` at low confidence, not `Unknown`. Two limits, stated with the call:
+   - candidates defined by the marker under test make the score partly
+     circular;
+   - cells of one island share a regional program, so a control group from
+     the same island can score high too.
+
+   Weigh the score with markers, reporters and UMAP position. Cite it in the
+   Evidence (score, IQR, the type genes kept).
 
 Consult `references/plant_pitfalls.md` for the relevant tissue and lineage
 (C4 grasses invert the mesophyll/bundle-sheath markers, for example).
@@ -1020,6 +1044,7 @@ markers belong in published atlas tables, labeled as such.
 | `references/markers/celltype_aliases.tsv` | Merging synonymous cell-type names across tables (used by the scripts automatically). |
 | `references/annotation/araport11_genes.tsv.gz`, `rice_msu_rap.tsv.gz` | Arabidopsis gene symbols/descriptions (`--gene-annotation`, `--ref-annotation`); rice MSU7 ↔ RAP-DB ID conversion. |
 | `scripts/check_genes.py` | Any gene-level check (Steps 3, 7, 8b): symbols/IDs → every gene copy → per-cluster fraction, mean, z. Use it instead of typing IDs. |
+| `scripts/type_under_state.py` | Step 7 item 10: the type of a state cluster, judged on candidate-type genes the state does not change, at matched depth. |
 | `scripts/score_gene_sets.py` | Step 3 for labels published only per cluster: score the published clusters' marker lists in the current clusters. |
 | `references/stress/protoplasting_induced_Shahan2022.txt` | Judging whether a cluster is dissociation stress. |
 | `references/plant_pitfalls.md` | Reasoning about clusters: states vs types, ambient RNA, lineage-specific cell types, homology traps. |

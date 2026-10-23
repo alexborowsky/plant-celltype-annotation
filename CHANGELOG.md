@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.5.0] - 2026-10-23
+
+In the blinded leaf-atlas re-run, a defense-state subset was left `Unknown` because its cell-type reporter had fallen
+to background, although its other genes matched that type.
+
+### Added
+- `scripts/type_under_state.py`: places a state cluster between candidate types on each pair's own genes, at matched
+  depth, leaving out the genes the state induces or represses. It also tabulates markers and reporters in the same
+  depth band, and lists the state program it left out.
+- SKILL.md Step 7 item 10: a state can hide its type's markers; run the script before calling a state cluster
+  `Unknown`, and state the limits (circular candidates, shared regional programs).
+- Pitfall: states suppress identity markers and reporters.
+- Smoke test step 7e.
+
 ## [0.4.0] - 2026-10-23
 
 States were listed only as a share on each cell-type page; the report did not show what set them or why.

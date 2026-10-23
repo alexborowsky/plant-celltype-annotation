@@ -110,6 +110,34 @@ python "$S/annotation_report.py" --h5ad annotated_state.h5ad --annotations CellT
 if grep -q "state page: Heat_Stress (.*1 cited)" report_state.log; then echo "PASS: state page with cited gene"
 else echo "FAIL: no state page"; tail -5 report_state.log; exit 1; fi
 
+step "7e. type_under_state: a state subset keeps its type on the genes the state leaves alone"
+python - <<'EOF'
+import numpy as np, scanpy as sc
+a = sc.read_h5ad('synthetic.h5ad')
+a.obs['total_counts'] = np.asarray(np.expm1(a.X).sum(1)).ravel()
+t = a.obs['truth'].astype(str)
+top = t.value_counts().index[:2]
+rng = np.random.default_rng(0)
+g = np.array(['other'] * a.n_obs, dtype=object)
+idx = np.flatnonzero(t == top[0])
+q = rng.choice(idx, len(idx) // 3, replace=False)
+g[idx] = 'A'
+g[q] = 'Q'
+g[t == top[1]] = 'B'
+a.obs['grp'] = g
+a.write_h5ad('tus_input.h5ad')
+EOF
+python "$S/type_under_state.py" --h5ad tus_input.h5ad --query Q=grp:Q --candidate A=grp:A --candidate B=grp:B \
+    --n-genes 30 --min-cells 20 --out checks/tus > tus.log
+python - <<'EOF'
+import pandas as pd
+s = pd.read_csv('checks/tus_scores.tsv', sep='\t')
+m = s.loc[s['group'] == 'Q', 'median'].iloc[0]
+print(f'query median {m} (A = 1, B = 0)')
+assert m > 0.6, 'type_under_state did not place a subset of type A near A'
+print('PASS: type_under_state')
+EOF
+
 step "7c. lineage tags on the shipped marker tables"
 python "$SKILL/tests/test_lineage_tags.py" | tail -2
 

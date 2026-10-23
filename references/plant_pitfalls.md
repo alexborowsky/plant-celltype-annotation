@@ -94,6 +94,11 @@
   its own program (present in all samples, enriched in one) was called
   Mesophyll, first after a SAG12-only test and then as "Mesophyll +
   unexplained state". It should stay `Unknown_<program>`.
+- **States suppress identity markers.** Defense and stress programs lower
+  the identity genes and promoter reporters of the cells they sit in. A
+  defense subset whose cell-type reporter fell to background still matched
+  that type on the genes the state left alone. Use
+  `scripts/type_under_state.py` before calling a state cluster `Unknown`.
 - **Shape on the UMAP is evidence.** Arms and projections leaving a type's
   main body mark continuous programs (ageing, development, stress) to name
   and test, not noise.
