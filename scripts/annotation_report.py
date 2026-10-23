@@ -28,7 +28,13 @@ Gene names: --gene-map (several allowed, first primary) and --gene-annotation (t
 gene_id, symbol, description; used for genes without a gene-map hit). Araport
 placeholders ("no symbol available") are treated as empty.
 Front pages: overview UMAP (labels pushed apart, with leader lines when moved) and a
-summary table. Last page: dotplot of the shown genes by cell type.
+summary table; a States page when obs has states (UMAP by state; per state: cells, cell types,
+the sample/condition with the highest share, and the annotation rows that set it); cluster pages.
+State pages (after the cell-type pages), one per state: the state on the UMAP, the Evidence of
+the rows that set it, cell types carrying it, its share per sample/condition (--composition-keys),
+and gene panels vs the same cell types without the state (gene IDs cited in the Evidence, then
+--state-genes, then top genes), with violins per type split into with (+) / without (-) the state.
+Last page: dotplot of the shown genes by cell type.
 """
 
 import argparse
@@ -527,6 +533,58 @@ def de_fallback(adata, key, cts, n_genes, use_raw, max_cells, rng):
 
 
 # ----------------------------------------------------------------------------
+# States (State column of the annotation table -> obs['cell_state'])
+
+COMPOSITION_RE = re.compile(r'^(sample|samples|batch|treatment|condition|genotype|replicate|rep|timepoint|time|'
+                            r'tissue|organ|library|orig\.ident)$', re.I)
+STATE_COLORS = ['#D55E00', '#0072B2', '#009E73', '#CC79A7', '#E69F00', '#56B4E9', '#F0E442',
+                '#AA3377', '#228833', '#4477AA', '#EE6677', '#CCBB44', '#66CCEE', '#555555']
+
+
+def contrast_stats(X, idx_in, idx_out):
+    """Detection fraction and mean of every gene in two sets of cells -> (fi, fo, mi, mo) arrays."""
+    out = []
+    for idx in (idx_in, idx_out):
+        A = X[np.sort(idx)]
+        if sparse.issparse(A):
+            A = A.tocsr()
+            out.append((np.asarray((A > 0).mean(0)).ravel(), np.asarray(A.mean(0)).ravel()))
+        else:
+            A = np.asarray(A)
+            out.append(((A > 0).mean(0), A.mean(0)))
+    (fi, mi), (fo, mo) = out
+    return fi, fo, mi, mo
+
+
+def cited_genes(texts, var_names):
+    """Gene IDs of the data that are written in Evidence texts, in order of first mention."""
+    vu = {str(v).upper(): v for v in var_names}
+    out = []
+    for t in texts:
+        for tok in re.findall(r'[A-Za-z0-9_.:\-]+', str(t)):
+            g = vu.get(tok.strip('.:-').upper())
+            if g is not None and g not in out:
+                out.append(g)
+    return out
+
+
+def composition_text(obs, mask, keys, n=6):
+    """Per composition key: share of each group's cells that carry the state, highest first."""
+    lines = []
+    for k in keys:
+        v = obs[k].astype(str).to_numpy()
+        tab = pd.Series(mask).groupby(v).mean().sort_values(ascending=False)
+        if len(tab) < 2:
+            continue
+        lo = tab.iloc[-1]
+        ratio = (f"; highest/lowest {tab.iloc[0] / lo:.1f}x" if lo > 0 else '; absent from '
+                 + ', '.join(tab.index[tab == 0][:4]) + (' ...' if (tab == 0).sum() > 4 else ''))
+        items = [f"{g} {x:.1%}" for g, x in tab.head(n).items()]
+        lines.append(f"{k}: " + ', '.join(items) + (f", ... ({len(tab) - n} more)" if len(tab) > n else '') + ratio)
+    return lines
+
+
+# ----------------------------------------------------------------------------
 
 def main():
     p = argparse.ArgumentParser(description=__doc__,
@@ -574,6 +632,15 @@ def main():
     p.add_argument('--layer', default=None)
     p.add_argument('--use-raw', choices=['auto', 'yes', 'no'], default='auto')
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--state-key', default=None,
+                   help="obs column with cell states (default: cell_state for --key cell_type, else <key>_state)")
+    p.add_argument('--state-genes', action='append', default=[],
+                   help='STATE=GENE1,GENE2: genes a state call rests on (symbols or IDs, resolved like '
+                        '--extra-genes); shown on the state page before data-driven genes. Repeatable')
+    p.add_argument('--max-state-genes', type=int, default=3, help='gene panels per state page')
+    p.add_argument('--composition-keys', nargs='*', default=None,
+                   help='obs columns for state composition (default: sample/batch/treatment/condition/'
+                        'genotype/replicate/timepoint columns that exist)')
     args = p.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -704,6 +771,72 @@ def main():
     print(f'  DE fallback for: {need_de}')
     de = de_fallback(adata, args.key, need_de, 10, args.use_raw, 2000, rng)
 
+    # ---- states: who carries them, where they come from, and the genes that set them apart from the same
+    # cell types without the state (so the page shows the state program, not type differences)
+    skey = args.state_key or ('cell_state' if args.key == 'cell_type' else f'{args.key}_state')
+    sl = adata.obs[skey].astype(str).to_numpy() if skey in adata.obs.columns else None
+    state_names = []
+    if sl is not None:
+        vc = pd.Series(sl[sl != 'none']).value_counts()
+        state_names = [st for st in vc.index if st not in ('', 'nan')]
+    comp_keys = (args.composition_keys if args.composition_keys is not None else
+                 [c for c in adata.obs.columns if COMPOSITION_RE.match(str(c))
+                  and 1 < adata.obs[c].astype(str).nunique() <= 60][:3])
+    state_terms = {}
+    for e in args.state_genes:
+        if '=' not in e:
+            sys.exit(f'--state-genes expects STATE=GENE1,GENE2, got {e}')
+        k, v = e.split('=', 1)
+        hit = [st for st in state_names if st.lower() == k.strip().lower()]
+        if not hit:
+            print(f'  WARN --state-genes: state {k} not in obs[{skey}]; ignored')
+            continue
+        state_terms.setdefault(hit[0], []).extend(t for t in re.split(r'[,\s]+', v) if t)
+    splans = {}
+    for st in state_names:
+        m = sl == st
+        rows = ann[ann['state'].astype(str).str.strip().str.lower() == st.lower()] if 'state' in ann.columns \
+            else ann.iloc[:0]
+        types = pd.Series(labels[m]).value_counts()
+        ref = np.isin(labels, types.index) & (sl == 'none')
+        contrast = 'the same cell types without a state'
+        if ref.sum() < 20:
+            ref, contrast = ~m, 'all other cells'
+        idx_in, idx_out = np.flatnonzero(m), np.flatnonzero(ref)
+        idx_in = rng.choice(idx_in, min(len(idx_in), 3000), replace=False)
+        idx_out = rng.choice(idx_out, min(len(idx_out), 3000), replace=False)
+        fi, fo, mi, mo = contrast_stats(X, idx_in, idx_out)
+        spec = specificity(fi, fo, mi - mo)
+        stat = pd.DataFrame({'frac_in': fi, 'frac_out': fo, 'mean_in': mi, 'mean_out': mo, 'spec': spec},
+                            index=var_names)
+        genes = []  # (gene, route)
+        for g in cited_genes(rows['evidence'], var_names):
+            genes.append((g, 'cited in the Evidence'))
+        for t in dict.fromkeys(state_terms.get(st, [])):
+            cs = [d['gene_id'] for d in res.resolve(t) if d['in_data'] and d['gene_id'] in stat.index]
+            if not cs:
+                print(f'  WARN --state-genes {st}: {t} resolves to no gene in the data; not shown')
+                continue
+            best = max(cs, key=lambda g: stat.at[g, 'spec'])
+            genes.append((best, f"--state-genes '{t}'"))
+        cited = list(dict.fromkeys(g for g, _ in genes))
+        # cited genes that are enriched first (most specific first), then data-driven top genes
+        enr = [g for g in cited if stat.at[g, 'spec'] > 0]
+        enr = sorted(enr, key=lambda g: -stat.at[g, 'spec'])
+        route = dict(genes)
+        show = enr[:args.max_state_genes]
+        top = stat[(stat['frac_in'] >= 0.10)].sort_values('spec', ascending=False)
+        for g in top.index:
+            if len(show) >= args.max_state_genes:
+                break
+            if g not in show:
+                show.append(g)
+                route.setdefault(g, f'top gene vs {contrast} (data-driven)')
+        splans[st] = dict(mask=m, rows=rows, types=types, contrast=contrast, stat=stat, show=show,
+                          route=route, cited=cited, top=list(top.index[:8]))
+    if state_names:
+        print(f'  {len(state_names)} states in obs[{skey}]; composition keys {comp_keys}')
+
     # ---- PDF
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     summary = []
@@ -768,6 +901,64 @@ def main():
         pdf.savefig(fig)
         plt.close(fig)
 
+        # States overview: which cells carry each state, in which types and samples, set by which rows
+        if state_names:
+            scol = {st: STATE_COLORS[i % len(STATE_COLORS)] for i, st in enumerate(state_names)}
+            fig = plt.figure(figsize=(8.5, 11))
+            gs = GridSpec(2, 1, height_ratios=[1.1, 1], figure=fig, hspace=0.08,
+                          left=0.05, right=0.97, top=0.92, bottom=0.03)
+            fig.text(0.05, 0.965, 'States', fontsize=13, fontweight='bold')
+            fig.text(0.05, 0.948, '\n'.join(textwrap.wrap(
+                f"obs['{skey}']: states are recorded on top of the cell type (annotation table State column); "
+                f"{int((sl != 'none').sum()):,} cells ({(sl != 'none').mean():.1%}) carry one. One page per state "
+                'follows the cell-type pages.', 115)), fontsize=8, va='top')
+            ax = fig.add_subplot(gs[0])
+            none = sl == 'none'
+            ax.scatter(um[none, 0], um[none, 1], s=size, c=BACKGROUND, lw=0, rasterized=True)
+            anchors = []
+            for st in state_names[::-1]:
+                m = sl == st
+                ax.scatter(um[m, 0], um[m, 1], s=size * 1.5, c=scol[st], lw=0, rasterized=True)
+            for st in state_names:
+                m = sl == st
+                anchors.append((np.median(um[m, 0]), np.median(um[m, 1])))
+            umap_axes(ax)
+            repel_labels(ax, anchors, state_names, fontsize=7, color='black',
+                         bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.8))
+            ax.text(0.0, 0.0, 'grey = no state', transform=ax.transAxes, fontsize=7, color='#555555')
+            axt = fig.add_subplot(gs[1])
+            axt.axis('off')
+            srows = []
+            for st in state_names:
+                sp = splans[st]
+                m = sp['mask']
+                tys = ', '.join(f"{t} {n / m.sum():.0%}" for t, n in sp['types'].head(3).items())
+                enr = ''
+                if comp_keys:
+                    k = comp_keys[0]
+                    tab = pd.Series(m).groupby(adata.obs[k].astype(str).to_numpy()).mean()
+                    enr = f"{tab.idxmax()} {tab.max():.1%} (median {tab.median():.1%})"
+                defs = '; '.join(f"{r.key_spec}:{r.cluster}" + (' (state only)' if str(r.cell_type).strip()
+                                 .lower() in ('', '-', 'na', 'none') else '') for r in sp['rows'].itertuples())
+                srows.append([st, f"{m.sum():,}", f"{m.mean():.1%}", tys, enr, defs or '(no table row)'])
+            wrap = lambda t, w: '\n'.join(textwrap.wrap(t, w)) or ''
+            srows = [[wrap(r[0], 22), r[1], r[2], wrap(r[3], 34), wrap(r[4], 22), wrap(r[5], 30)] for r in srows]
+            tbl = axt.table(cellText=srows, colLabels=['State', 'Cells', '%', 'Cell types', 'Highest share'
+                            + (f' ({comp_keys[0]})' if comp_keys else ''), 'Set by rows'],
+                            loc='upper center', cellLoc='left', colLoc='left',
+                            colWidths=[0.17, 0.08, 0.06, 0.27, 0.19, 0.23])
+            tbl.auto_set_font_size(False)
+            tbl.set_fontsize(6)
+            for (r, c), cell in tbl.get_celld().items():
+                cell.set_edgecolor('#DDDDDD')
+                if r == 0:
+                    cell.set_text_props(fontweight='bold')
+                else:
+                    nl = max(str(x).count('\n') for x in srows[r - 1]) + 1
+                    cell.set_height(cell.get_height() * (0.7 + 0.55 * nl))
+            pdf.savefig(fig)
+            plt.close(fig)
+
         # Cluster definitions: every cluster key used by the annotation rows or the violin plots,
         # so cluster IDs on the cell-type pages can be looked up without the h5ad (two keys per page)
         ckeys = [k for k in dict.fromkeys([pl['key'] for pl in plans.values()] + list(ann['obs_key']))
@@ -806,14 +997,14 @@ def main():
                           left=0.05, right=0.97, top=0.93, bottom=0.05)
             fig.text(0.05, 0.965, ct, fontsize=13, fontweight='bold', color='black')
             skey = 'cell_state' if args.key == 'cell_type' else f'{args.key}_state'
-            states = ''
+            st_text = ''
             if skey in adata.obs.columns:
                 vc = adata.obs.loc[mask, skey].astype(str).value_counts()
                 vc = vc[vc.index != 'none']
                 if len(vc):
-                    states = '; states: ' + ', '.join(f'{k} {v / mask.sum():.0%}' for k, v in vc.head(4).items())
+                    st_text = '; states: ' + ', '.join(f'{k} {v / mask.sum():.0%}' for k, v in vc.head(4).items())
             fig.text(0.05, 0.948, f"{mask.sum():,} cells ({mask.mean():.1%})"
-                     + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else '') + states, fontsize=8)
+                     + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else '') + st_text, fontsize=8)
             ax = fig.add_subplot(gs[0, 0:2])
             plot_highlight(ax, um, mask, pal.get(ct, HIGHLIGHT), size)
             axt = fig.add_subplot(gs[0, 2])
@@ -898,6 +1089,98 @@ def main():
             pdf.savefig(fig)
             plt.close(fig)
             print(f'  page: {ct} ({len(entries)} {"DE" if fallback else "marker/extra"} gene(s))')
+
+        # One page per state
+        for st in state_names:
+            sp = splans[st]
+            m, stat = sp['mask'], sp['stat']
+            n_rows = max(1, len(sp['show']))
+            fig = plt.figure(figsize=(8.5, 11))
+            gs = GridSpec(2 + n_rows, 3, figure=fig, height_ratios=[1.5, 0.8] + [1] * n_rows,
+                          width_ratios=[1, 1.25, 1.15], hspace=0.6, wspace=0.3,
+                          left=0.05, right=0.97, top=0.93, bottom=0.05)
+            fig.text(0.05, 0.965, f'State: {st}', fontsize=13, fontweight='bold')
+            fig.text(0.05, 0.952, '\n'.join(textwrap.wrap(
+                f"{m.sum():,} cells ({m.mean():.1%}); in "
+                + ', '.join(f"{t} ({n:,}, {n / max((labels == t).sum(), 1):.0%} of that type)"
+                            for t, n in sp['types'].head(4).items())
+                + (f", +{len(sp['types']) - 4} more" if len(sp['types']) > 4 else ''), 115)), fontsize=8, va='top')
+            ax = fig.add_subplot(gs[0, 0:2])
+            plot_highlight(ax, um, m, HIGHLIGHT, size)
+            lines = ['**Annotation rows that set this state']
+            for r in sp['rows'].itertuples():
+                ct = str(r.cell_type).strip()
+                who = 'state only (type from other rows)' if ct.lower() in ('', '-', 'na', 'none') else ct
+                lines.append(f"{r.key_spec} cluster {r.cluster} -> {who}: {r.evidence or '(no Evidence text)'}")
+            if sp['rows'].empty:
+                lines.append('(none found: the state is not in the annotation table)')
+            nc = [g for g in sp['cited'] if stat.at[g, 'spec'] <= 0]
+            if nc:
+                lines.append('**Cited genes NOT enriched vs ' + sp['contrast'])
+                lines.append(', '.join(f"{g} ({stat.at[g, 'frac_in']:.0%} vs {stat.at[g, 'frac_out']:.0%})"
+                                       for g in nc[:10]))
+            if not sp['cited']:
+                lines.append('**No gene ID cited in the Evidence and no --state-genes: genes below are '
+                             'data-driven only')
+            text_panel(fig.add_subplot(gs[0, 2]), lines)
+            # composition: cell types carrying the state, and share of each sample/condition
+            axc = fig.add_subplot(gs[1, 0])
+            tys = sp['types'].head(8)[::-1]
+            axc.barh(range(len(tys)), tys.values, color=[pal.get(t, HIGHLIGHT) for t in tys.index])
+            for yi, (t, n) in enumerate(tys.items()):  # direct labels: type names are too long for tick labels
+                axc.text(n + tys.max() * 0.03, yi, f'{t} ({n:,})', va='center', fontsize=6)
+            axc.set_xlim(0, tys.max() * 2.2)
+            axc.set_yticks([])
+            axc.spines['left'].set_visible(False)
+            axc.set_xlabel('cells in state', fontsize=7)
+            axc.tick_params(labelsize=6)
+            if comp_keys:
+                k = comp_keys[0]
+                tab = pd.Series(m).groupby(adata.obs[k].astype(str).to_numpy()).mean()
+                tab = tab.reindex(sorted(tab.index, key=natural_key))
+                axs = fig.add_subplot(gs[1, 1])
+                axs.bar(range(len(tab)), tab.values * 100, color=HIGHLIGHT)
+                pre = os.path.commonprefix(list(tab.index)) if len(tab) > 1 else ''
+                short = [g[len(pre):] or g for g in tab.index]
+                axs.set_xticks(range(len(tab)))
+                axs.set_xticklabels(short, fontsize=6, rotation=90 if max(map(len, short)) * len(tab) > 40 else 0)
+                axs.set_xlabel(f'{k}' + (f' ({pre}...)' if pre else ''), fontsize=7)
+                axs.set_ylabel('% of cells in state', fontsize=7)
+                axs.tick_params(labelsize=6)
+            ctext = composition_text(adata.obs, m, comp_keys)
+            ctext = ['**Share of each group in this state'] + (ctext or ['(no sample/condition column found; '
+                                                                          'use --composition-keys)'])
+            ctext += ['**Top genes vs ' + sp['contrast'],
+                      ', '.join(f"{target_symbol(g, res) or g} ({stat.at[g, 'frac_in']:.0%} vs "
+                                f"{stat.at[g, 'frac_out']:.0%})" for g in sp['top'][:6])]
+            text_panel(fig.add_subplot(gs[1, 2]), ctext)
+            # gene panels: violins per carrying type, with vs without the state
+            tys = list(sp['types'].index[:4])
+            in_t = np.isin(labels, tys)
+            vlab = np.where(in_t, np.char.add(labels.astype(str), np.where(m, ' +', ' -')), 'other')
+            vhigh = {f'{t} +' for t in tys}
+            for i, g in enumerate(sp['show']):
+                v, _ = gene_matrix(adata, X, var_names, [g])
+                v = v.toarray().ravel() if sparse.issparse(v) else np.asarray(v).ravel()
+                sym = target_symbol(g, res) or g
+                plot_expr_umap(fig.add_subplot(gs[2 + i, 0]), um, v, size, sym)
+                axv = fig.add_subplot(gs[2 + i, 1])
+                plot_violins(axv, v, vlab, vhigh, args.max_cells_violin, rng)
+                for t in axv.get_xticklabels():
+                    t.set_rotation(30)
+                    t.set_ha('right')
+                axv.set_xlabel('')
+                axv.text(1.0, 1.02, '+ with / - without the state', transform=axv.transAxes, ha='right',
+                         va='bottom', fontsize=6, color='#555555')
+                r = stat.loc[g]
+                text_panel(fig.add_subplot(gs[2 + i, 2]), [
+                    f"**{sym}", f"{g}", f"Shown because: {sp['route'].get(g, '')}",
+                    f"Homolog: {gene_desc(g, res) or 'none'}",
+                    f"In state: {r['frac_in']:.1%} of cells vs {r['frac_out']:.1%} in {sp['contrast']}; "
+                    f"mean {r['mean_in']:.2f} vs {r['mean_out']:.2f}; specificity {r['spec']:.2f}"])
+            pdf.savefig(fig)
+            plt.close(fig)
+            print(f'  state page: {st} ({len(sp["show"])} gene(s); {len(sp["cited"])} cited)')
 
         # Dotplot of shown markers
         # Built from a small matrix of just the shown genes so axis labels can be marker symbols

@@ -911,6 +911,7 @@ python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellType
     --markers markers_from_arabidopsis.tsv [markers_sorghum.tsv] --gene-map gene_map.tsv [gene_map_maize.tsv] \
     [--gene-annotation target_genes.tsv] [--colors CellTypeColors.txt] \
     [--extra-genes Bundle_Sheath=Nb05g00210,ACA1,NPF6.2] [--alias Procambium_Dividing=Procambium,Dividing_cells] \
+    [--state-genes S_Phase=H3.1,PCNA1] [--composition-keys sample treatment] \
     --output annotation_qc/annotation_report.pdf
 ```
 
@@ -928,7 +929,28 @@ The PDF contains:
     clusters of the defining key (the annotated clusters highlighted), and
     a text panel with the marker's evidence tier, homology (locus, rank,
     % identity, RBH, rescue), basis, source, and in-data enrichment
+- **A States page** (when the table has a State column): a UMAP coloured by
+  state, and a table of each state's cells, the cell types carrying it,
+  the sample with the highest share, and the annotation rows that set it.
+- **One page per state**, after the cell-type pages: the state on the UMAP;
+  the Evidence of the rows that set it; the cell types carrying it; its
+  share of each sample/treatment/replicate (`--composition-keys`, default:
+  such obs columns found); and gene panels **against the same cell types
+  without the state** (so the page shows the state's program, not type
+  differences), with violins per type split into with (+) and without (-)
+  the state. Genes come from the gene IDs written in the rows' Evidence,
+  then `--state-genes STATE=GENE1,GENE2`, then the top genes of that
+  contrast (labelled data-driven). Cited genes that are not enriched are
+  listed.
 - **A dotplot** of every marker shown, by cell type.
+
+**State rows need evidence like type rows.** In the Evidence of every row
+that sets a State, write the gene IDs the call rests on with their fraction
+in vs out, the comparison used (same types without the state), and the
+state's composition by sample and treatment (enriched in, absent from).
+Name what the state is (the process you tested) or, when the program is
+unexplained, use `Unknown_<program>` instead of a state (Step 7, item 7).
+Check each state page as you would a cell-type page.
 
 Markers per page:
 - Markers must be enriched in the cell type and detected in at least

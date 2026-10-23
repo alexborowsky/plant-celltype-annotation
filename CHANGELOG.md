@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.4.0] - 2026-10-23
+
+States were listed only as a share on each cell-type page; the report did not show what set them or why.
+
+### Added
+- **State pages in `annotation_report.py`:**
+  - A States page: a UMAP coloured by state, and a table of each state's cells, the cell types carrying it, the
+    sample with the highest share, and the annotation rows that set it.
+  - One page per state: the state on the UMAP; the Evidence of its rows; the cell types carrying it; its share of
+    each sample/treatment/replicate; and gene panels against the same cell types without the state, with violins
+    per type split into with (+) and without (-) the state.
+  - Genes come from the gene IDs in the rows' Evidence, then `--state-genes STATE=GENE1,GENE2`, then the top genes
+    of the contrast (labelled data-driven). Cited genes that are not enriched are listed.
+  - New flags: `--state-key`, `--state-genes`, `--max-state-genes`, `--composition-keys`.
+- SKILL.md Step 9b: state rows need evidence like type rows (genes with fractions vs the same types without the
+  state, composition by sample and treatment).
+- Smoke test step 7d: a state-only row is applied and gets its page.
+
 ## [0.3.1] - 2026-10-23
 
 A re-run of the blinded leaf-atlas annotation on 0.3.0 still labelled a distinct cluster (a private program in most of its
