@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.3.1] - 2026-10-23
+
+A re-run of the blinded leaf-atlas annotation on 0.3.0 still labelled a distinct cluster (a private program in most of its
+cells, an arm off the mesophyll body on the UMAP) as `Mesophyll` with an "unexplained program" state.
+
+### Changed
+- **A private program you cannot explain is not a state.** The cluster is `Unknown_<program>`, not the majority type
+  plus a state. Shared photosynthesis genes do not set the type of such a cluster.
+- **UMAP shape is checked per cluster:** look at each cluster highlighted and note its shape (within body, island,
+  arm/projection, bridge) in the Evidence column.
+
+### Added
+- `apply_annotations.py` warns when a State names no recognizable process, or when the Evidence calls it unexplained.
+
 ## [0.3.0] - 2026-10-23
 
 Feedback from a blinded re-annotation of a 264k-cell leaf atlas.

@@ -30,6 +30,9 @@ sub_cl24	1	Bundle_Sheath	Sulfur_Starvation	same state in BS-marker cells
 - States: stress/treatment responses, cell cycle (`S_Phase`, `G2M`),
   senescence, circadian. Types: everything else. Never put a state in
   `CellType` when the cells' type can be resolved.
+- A state names a tested process. A private program you cannot explain is
+  not a state: write `Unknown_<program>` in `CellType` instead
+  (`apply_annotations.py` warns about state names that describe no process).
 
 
 - `Resolution` is either a number (read as `leiden_res<number>`) or any

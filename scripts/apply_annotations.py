@@ -136,6 +136,13 @@ def parse_annotations(path):
 LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_bundle|vascular_tissue|stele|'
                           r'ground_tissue|ground)$', re.I)
 STATE_ONLY = {'', '-', 'na', 'none'}
+# State names that describe a tested process. Anything else (e.g. '<gene>_<gene>_program') looks like an unexplained
+# private program, which belongs in CellType as Unknown_<program>, not as a state on the majority type.
+KNOWN_STATE = re.compile(r's_?phase|g2_?m|g1|cycl|mitot|divid|endored|stress|respon|heat|cold|chill|drought|osmot|salt|'
+                         r'wound|defen|immun|pathogen|infect|agro|senesc|ageing|aging|circad|diurnal|light|dark|'
+                         r'starv|deficien|hypox|anox|flood|treat|mock|batch|rep\d|replicate|dissoc|protoplast|'
+                         r'young|expand|matur|differentiat|ambient|low_?quality|doublet|hormone|aba|auxin|'
+                         r'cytokinin|ethylene|jasmon|salicyl|nutrient|nitrogen|phosph|sulfur|iron|metal', re.I)
 
 
 def state_key(out_key):
@@ -296,6 +303,18 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
                   'within the layer is ambiguous (say why in Evidence); otherwise label the types inside it '
                   '(epidermis: Pavement, Guard, Trichome, Protodermal, species-specific types such as Bulliform '
                   'or Subsidiary; vasculature: Xylem, Phloem, Phloem_Companion, Procambium...).')
+    # States that do not name a process: an unexplained program parked on a cell type
+    ev = log['evidence'].astype(str) if 'evidence' in log.columns else pd.Series('', index=log.index)
+    has_state = log['state'].astype(str).str.strip().ne('') if 'state' in log.columns else ev.eq('#')
+    for r, e in zip(log[has_state].itertuples(), ev[has_state]):
+        st, ct = str(r.state).strip(), str(r.cell_type)
+        unexplained = re.search(r'unexplained|not explained|unknown program|program unknown', e, re.I)
+        if ct.lower() in STATE_ONLY or not (unexplained or not KNOWN_STATE.search(st)):
+            continue
+        print(f'  WARN line {r.line}: state "{st}" on {ct} does not name a tested process'
+              + (' and the Evidence calls it unexplained' if unexplained else '')
+              + '. A private program you cannot explain is not a state: label the cluster '
+              f'Unknown_<program> in CellType (a "{ct}" background of shared genes does not set the type).')
     # Subcluster rows that fold cells back into a broad type assigned at the base clustering
     sub = log[(log['status'].isin(['ok', 'mostly_shadowed'])) & ~log['obs_key'].isin(numeric_keys)]
     base = log[log['obs_key'].isin(numeric_keys) & (log['status'] != 'state_only')]

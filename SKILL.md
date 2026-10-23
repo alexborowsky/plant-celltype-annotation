@@ -63,7 +63,10 @@ as a label.
    stress/defense, circadian, and treatment responses can form clusters.
    Record the state in the annotation table's `State` column and keep the
    underlying cell type in `CellType` (Step 7, item 9); use a state as the
-   label only when the type truly cannot be resolved.
+   label only when the type truly cannot be resolved. A state names a process
+   you tested and found (cell-cycle genes, a stress or senescence panel,
+   treatment composition). **A private program you cannot explain is not a
+   state:** the cluster is `Unknown_<program>`, not `<MajorityType>` + state.
 7. **Heavy work goes to the scheduler.** Never load an h5ad on a login node.
    Inside an interactive allocation (`$SLURM_JOB_ID` set), run the scripts
    directly if the object fits its memory and time; otherwise submit them with
@@ -703,12 +706,22 @@ cluster:
    or stress state). **Sample enrichment is not batch** unless the cluster
    is absent (or nearly so) from other samples of the same condition; a
    cluster present in every sample but enriched in one is biology until
-   shown otherwise.
+   shown otherwise. The `State` column is no way around this:
+   `Mesophyll` + state `<program>` with "program unexplained" is the same
+   error. Shared photosynthesis genes (RBCS, CA, LHCB at mesophyll levels)
+   do not set the type of such a cluster; every chloroplast-bearing leaf cell
+   and ambient RNA carry them. If every Step 8b hypothesis fails, the label
+   stays `Unknown_<program>`, named after its top private genes.
 8. **Read the UMAP shape.** A long arm or projection leaving the main body
    of a type, a thin bridge between types, or a gradient along one axis
    usually means a continuous program (development, ageing/senescence,
    stress, a transition), not noise. Name it, test the genes that change
-   along it, and don't absorb it into the neighbouring type.
+   along it, and don't absorb it into the neighbouring type. Look at each
+   cluster on its own (the report's cluster pages, or a UMAP with the cluster
+   highlighted) and note its shape in the Evidence column: `within body`,
+   `island`, `arm/projection` or `bridge`. A cluster forming an arm off a
+   type's body is not that type by default; summary statistics of the
+   cluster's spread miss arms, so look.
 9. **States never replace the cell type.** A stress, treatment, cell-cycle
    or senescence state can span several types (sulfur starvation in both
    mesophyll and bundle-sheath cells). Keep the type and record the state
