@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.3.0] - 2026-10-23
+
+Feedback from a blinded re-annotation of a 264k-cell leaf atlas.
+
+### Added
+- **Annotation table `State` column:** states (stress, treatment response, cell cycle, senescence) keep the cell type.
+  - It writes `obs['cell_state']` and `obs['cell_type_with_state']`.
+  - Rows with CellType `-` are state-only: they set the state and leave the type to other rows.
+  - Report pages list each type's states.
+- `apply_annotations.py`: a note when a tissue-layer name is used as a label, and a warning when a subcluster row
+  assigns the broad type of other base clusters (fold-back).
+
+### Changed (SKILL.md, pitfalls, file formats)
+- **Name cell types, not layers:** Pavement, Guard, Trichome, Protodermal, species-specific epidermal types; vascular
+  types. Layer names (Epidermis, Vasculature) are valid only when the identity within the layer is ambiguous.
+- **States never replace the cell type.** A state cluster that mixes types is resolved per cell.
+- **Subclusters of trichome or vascular clusters never fold back into the majority type** (e.g. mesophyll). They keep
+  the parent lineage name or Unknown.
+- **A cluster with its own program** (private DE genes in ≥ 50% of its cells vs ≤ 5% elsewhere) is not given the
+  majority label by exclusion. Sample enrichment is not batch when the cluster is present in all samples.
+- **Senescence is tested with a gene panel;** a null result for a single unmeasurable marker counts as "untested".
+- **UMAP shape is evidence:** arms and projections mark continuous programs to investigate.
+
 ## [0.2.1] - 2026-10-22
 
 ### Fixed

@@ -12,6 +12,26 @@ cl6_sub0.3	1	Phloem_Parenchyma	subcluster of res0.3 cl6
 0.5	0	Mesophyll	RBCS/PSBQ high, no other type signal
 ```
 
+Optional `State` column (detected by its header) so that states keep the cell
+type:
+
+```
+Resolution	Cluster	CellType	State	Evidence
+sub_cl24	0	Mesophyll	Sulfur_Starvation	SULTR1;1/APR up; mesophyll program
+sub_cl24	1	Bundle_Sheath	Sulfur_Starvation	same state in BS-marker cells
+1.5	24	-	Sulfur_Starvation	state-only row: sets the state, type comes from rows above/below
+1.5	0	Mesophyll		no state
+```
+
+- `State` sets `obs['cell_state']` (`none` where unset) and
+  `obs['cell_type_with_state']` (`Mesophyll (Sulfur_Starvation)`).
+- A row with CellType `-` and a State is **state-only**: it records the state
+  but does not claim the cells' type, which other rows assign.
+- States: stress/treatment responses, cell cycle (`S_Phase`, `G2M`),
+  senescence, circadian. Types: everything else. Never put a state in
+  `CellType` when the cells' type can be resolved.
+
+
 - `Resolution` is either a number (read as `leiden_res<number>`) or any
   `adata.obs` column name, including labels imported with `--import-labels`.
 - `Cluster` is compared as a string against that column. A comma list

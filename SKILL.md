@@ -59,9 +59,11 @@ as a label.
    every marker you rely on, report the reference locus, hit rank, and %
    identity. Prefer reciprocal best hits (RBH). Check all paralogs, because
    polyploids have several copies.
-6. **Separate states from types.** Cell cycle, senescence, stress/defense,
-   circadian, and treatment responses can form clusters. Label them as
-   states, or annotate the underlying type, and say which you chose.
+6. **Separate states from types, and keep both.** Cell cycle, senescence,
+   stress/defense, circadian, and treatment responses can form clusters.
+   Record the state in the annotation table's `State` column and keep the
+   underlying cell type in `CellType` (Step 7, item 9); use a state as the
+   label only when the type truly cannot be resolved.
 7. **Heavy work goes to the scheduler.** Never load an h5ad on a login node.
    Inside an interactive allocation (`$SLURM_JOB_ID` set), run the scripts
    directly if the object fits its memory and time; otherwise submit them with
@@ -659,7 +661,12 @@ cluster:
      which happens in differentiating xylem, tapetum, root cap, nucellus and
      degenerating organs. Call **senescence** only with senescence evidence
      (SAG12, chlorophyll breakdown *and* declining photosynthesis/ribosome
-     programs, in an old organ). Call **xylem** only with xylem identity
+     programs, in an old organ). Test senescence with a **panel**, never
+     one gene: SAG12, SAG13, SAG20/21, SAG101, ORE1/NAC092, WRKY53, NYE1/SGR,
+     NYC1, PAO, autophagy (ATG8), aspartic/cysteine proteases (APA1, RD21),
+     glyoxalases and protease inhibitors, plus falling photosynthesis.
+     When the canonical marker is not measurable (absent or all-zero), the
+     result is "untested", not "not found". Call **xylem** only with xylem identity
      genes (VND/NAC, XCP1/2, ACL5, WAT1, secondary-wall CESA4/7/8, IRX)
      enriched in the cells, plus adjacency to procambium; PCD genes alone
      are not enough. In a rice panicle test the xylem was a 182-cell subset
@@ -688,6 +695,28 @@ cluster:
    ambient) points to bundle sheath; xylem and phloem parenchyma are not
    photosynthetic. In C4 grasses, the bundle sheath carries the Kranz
    program instead (see the pitfalls).
+7. **A cluster with its own program is not the majority type.** If a
+   cluster has private DE genes (in ≥ 50% of its cells vs ≤ 5% elsewhere),
+   do not give it the majority label "by level and exclusion" (Mesophyll in
+   leaves). Label it `<Type>_like` or `Unknown_<program>` and test
+   hypotheses (Step 8b: senescence, development, a minor type, a treatment
+   or stress state). **Sample enrichment is not batch** unless the cluster
+   is absent (or nearly so) from other samples of the same condition; a
+   cluster present in every sample but enriched in one is biology until
+   shown otherwise.
+8. **Read the UMAP shape.** A long arm or projection leaving the main body
+   of a type, a thin bridge between types, or a gradient along one axis
+   usually means a continuous program (development, ageing/senescence,
+   stress, a transition), not noise. Name it, test the genes that change
+   along it, and don't absorb it into the neighbouring type.
+9. **States never replace the cell type.** A stress, treatment, cell-cycle
+   or senescence state can span several types (sulfur starvation in both
+   mesophyll and bundle-sheath cells). Keep the type and record the state
+   in the annotation table's `State` column (`references/file_formats.md`).
+   When a state cluster mixes types, resolve the type per cell: subcluster
+   it (`--recompute-pca`), score type markers within it, or follow its
+   cells' parent clusters at a coarser resolution. Then write type rows for
+   the parts plus a state-only row for the whole cluster.
 
 Consult `references/plant_pitfalls.md` for the relevant tissue and lineage
 (C4 grasses invert the mesophyll/bundle-sheath markers, for example).
@@ -700,6 +729,19 @@ Then compare the calls with `expected_cell_types.tsv`:
 - **A call that isn't on the list** needs stronger evidence, or a reason
   why the list missed it.
 
+**Name cell types, not tissue layers.** "Epidermis", "Vasculature",
+"Vascular", "Stele" and "Ground tissue" are layers or tissue systems made of
+several cell types. Label the types: **Pavement** (the bulk of non-guard,
+non-trichome epidermal cells), **Guard**, **Trichome** / **Glandular_Trichome**,
+**Protodermal** (undifferentiated, young epidermal cells), and
+species-specific types (Bulliform, Subsidiary, Silica, Cork, Long/Short cells
+in grasses); in the vasculature Xylem, Xylem_Parenchyma, Phloem_Companion,
+Sieve_Element, Phloem_Parenchyma, Procambium, Bundle_Sheath. Layer names
+(`Epidermis`, `Vasculature`) are valid **only when the identity within the
+layer is ambiguous**: say why in the Evidence column (which types were tested
+and why none fits). `apply_annotations.py` prints a reminder when a layer
+name is used.
+
 **Label conventions** for calls that are not a clean type:
 - `<Type>_like` with `low` confidence: lineage-consistent but no specific
   marker (e.g. `Cortex_like` called by exclusion). Say "by exclusion".
@@ -710,6 +752,9 @@ Then compare the calls with `expected_cell_types.tsv`:
   `Young_<lineage>`, `Expanding_<lineage>`, `Mature_<lineage>`; state the
   organ-identity alternative in the Evidence column.
 - `Unknown_<hint>` for clusters with a program but no identity.
+- A layer or lineage name (`Epidermis`, `Vasculature`, `Trichome`) for
+  cells that a parent clustering separated as that lineage but whose exact
+  type is ambiguous.
 
 Then draft the annotation table (format in `references/file_formats.md`),
 including an `Evidence` column, and present it to the user as a compact
@@ -717,6 +762,14 @@ table. Say which rows were adopted from the publication and which were
 derived here.
 
 ### 8. Subcluster ambiguous clusters (`scripts/subcluster.py`), if needed
+
+**Subclusters never fold back into the majority type.** The parent
+clustering separated these cells (a trichome or vascular cluster) from the
+majority (mesophyll). A subcluster that only looks like mesophyll (ambient
+photosynthesis RNA, no private program) keeps the parent's layer or lineage
+name (e.g. `Vasculature`, `Trichome`) or `Unknown`, not Mesophyll, unless its
+own markers clearly say so;
+`apply_annotations.py` warns when a subcluster row reuses a broad base label.
 
 ```bash
 python scripts/subcluster.py --h5ad data.h5ad --cluster-key leiden_res0.3 \

@@ -86,6 +86,16 @@
   small subset inside the procambium cluster (subcluster it), while a PCD
   cluster without those genes belongs to another dying tissue.
 
+- **Senescence needs a panel.** SAG12 is often missing from nuclei matrices.
+  Test SAG13/20/21/101, ORE1, WRKY53, chlorophyll catabolism (SGR, NYC1, PAO),
+  proteases (APA1, RD21) and falling photosynthesis together; a one-gene null
+  is "untested". In a leaf atlas test, a senescing cluster (CASP-like,
+  GLYI7, APA1, proteinase inhibitor; present in all samples, enriched in
+  one) was absorbed into Mesophyll after a SAG12-only test.
+- **Shape on the UMAP is evidence.** Arms and projections leaving a type's
+  main body mark continuous programs (ageing, development, stress) to name
+  and test, not noise.
+
 ## Composition and batch
 - A cluster in which >80% of cells come from one sample, or a treatment
   enrichment of more than 2×, is usually batch, a treatment response, or

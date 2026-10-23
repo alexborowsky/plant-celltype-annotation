@@ -14,6 +14,7 @@ annotation_qc.pdf (UMAP, marker dotplot by cell type, cell type x cluster crosst
 """
 
 import argparse
+import re
 import os
 import warnings
 
@@ -95,9 +96,18 @@ def semantic_color(name):
 
 
 def parse_annotations(path):
+    """Annotation table: Resolution, Cluster, CellType[, State], Evidence (tab-separated, header row).
+
+    The optional `State` column (detected by its header name) records a cell state (stress, treatment
+    response, cell cycle...) on top of the cell type, so the type persists: `Mesophyll` + `Sulfur_Starvation`.
+    A row with CellType `-` (or empty) and a State is *state-only*: it sets the state of those cells without
+    claiming their type, which then comes from other rows (e.g. subcluster rows that split the state cluster
+    into Mesophyll and Bundle_Sheath)."""
     rows = []
     with open(path) as fh:
-        fh.readline()  # header
+        header = [h.strip().lower() for h in fh.readline().rstrip('\n').split('\t')]
+        i_state = header.index('state') if 'state' in header else None
+        i_ev = header.index('evidence') if 'evidence' in header else None
         for ln, line in enumerate(fh, start=2):
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
@@ -107,15 +117,29 @@ def parse_annotations(path):
                     print(f'  WARN line {ln}: <3 columns, skipped')
                     continue
                 res, cl, ct = parts[:3]
-                ev = ' '.join(parts[3:])
+                state = parts[i_state] if i_state is not None and i_state < len(parts) else ''
+                if i_ev is not None:
+                    ev = ' '.join(parts[i_ev:])
+                else:
+                    ev = ' '.join(p for j, p in enumerate(parts[3:], start=3) if j != i_state)
             else:  # legacy whitespace-delimited
                 parts = line.split()
                 if len(parts) < 3:
                     print(f'  WARN line {ln}: <3 columns, skipped')
                     continue
-                res, cl, ct, ev = parts[0], parts[1], '_'.join(parts[2:]), ''
-            rows.append({'line': ln, 'key_spec': res, 'cluster': cl, 'cell_type': ct, 'evidence': ev})
-    return pd.DataFrame(rows)
+                res, cl, ct, ev, state = parts[0], parts[1], '_'.join(parts[2:]), '', ''
+            rows.append({'line': ln, 'key_spec': res, 'cluster': cl, 'cell_type': ct, 'state': state, 'evidence': ev})
+    return pd.DataFrame(rows, columns=['line', 'key_spec', 'cluster', 'cell_type', 'state', 'evidence'])
+
+
+# Tissue layers / tissue systems are not cell types: label the types inside them.
+LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_bundle|vascular_tissue|stele|'
+                          r'ground_tissue|ground)$', re.I)
+STATE_ONLY = {'', '-', 'na', 'none'}
+
+
+def state_key(out_key):
+    return 'cell_state' if out_key == 'cell_type' else f'{out_key}_state'
 
 
 def resolve_key(spec, obs_cols):
@@ -192,20 +216,45 @@ def canonical_names(ann, colors):
 def apply(adata, ann, out_key, unknown):
     lab = np.array([unknown] * adata.n_obs, dtype=object)
     claimed = np.zeros(adata.n_obs, dtype=bool)  # an explicit Unknown row also claims its cells
+    st = np.array([''] * adata.n_obs, dtype=object)
+    st_set = np.zeros(adata.n_obs, dtype=bool)
     log = []
     cols = set(adata.obs.columns)
+    numeric_keys = set()
     for r in ann.itertuples():
         key = resolve_key(r.key_spec, cols)
+        state = str(getattr(r, 'state', '') or '').strip()
+        state_only = str(r.cell_type).strip().lower() in STATE_ONLY
         if key is None:
             print(f'  WARN line {r.line}: no obs column for "{r.key_spec}"; skipped')
             log.append({**r._asdict(), 'obs_key': '', 'n_cluster': 0, 'n_new': 0, 'n_shadowed': 0,
                         'status': 'missing_key'})
             continue
+        try:
+            float(r.key_spec)
+            numeric_keys.add(key)
+        except ValueError:
+            pass
         in_cl = cluster_mask(adata.obs[key], r.cluster)
+        if state_only:
+            if not state:
+                print(f'  WARN line {r.line}: CellType "{r.cell_type}" without a State; skipped')
+                continue
+            n_new = int((in_cl & ~st_set).sum())
+            st[in_cl & ~st_set] = state
+            st_set |= in_cl
+            print(f'  {key:>22s} {str(r.cluster):>5s} -> state {state:18s} {n_new:>9,} cells (type from other rows)')
+            log.append({**r._asdict(), 'obs_key': key, 'n_cluster': int(in_cl.sum()), 'n_new': n_new,
+                        'n_shadowed': int(in_cl.sum()) - n_new, 'status': 'state_only'})
+            continue
         free = ~claimed
         n_new = int((in_cl & free).sum())
         n_sh = int((in_cl & ~free).sum())
         lab[in_cl & free] = r.cell_type
+        if state:
+            m = in_cl & free & ~st_set
+            st[m] = state
+            st_set |= m
         claimed |= in_cl
         status = 'ok'
         if in_cl.sum() == 0:
@@ -216,12 +265,50 @@ def apply(adata, ann, out_key, unknown):
             status = 'mostly_shadowed'
         if status != 'ok':
             print(f'  WARN line {r.line}: {key}={r.cluster} -> {r.cell_type}: {status}')
-        print(f'  {key:>22s} {str(r.cluster):>5s} -> {r.cell_type:24s} {n_new:>9,} new {n_sh:>9,} already')
+        print(f'  {key:>22s} {str(r.cluster):>5s} -> {r.cell_type:24s} {n_new:>9,} new {n_sh:>9,} already'
+              + (f'  [state {state}]' if state else ''))
         log.append({**r._asdict(), 'obs_key': key, 'n_cluster': int(in_cl.sum()),
                     'n_new': n_new, 'n_shadowed': n_sh, 'status': status})
     cats = sorted(set(lab) - {unknown}) + ([unknown] if unknown in set(lab) else [])
     adata.obs[out_key] = pd.Categorical(lab, categories=cats)
-    return pd.DataFrame(log).drop(columns=['Index'], errors='ignore')
+    log = pd.DataFrame(log).drop(columns=['Index'], errors='ignore')
+    if st_set.any():
+        sk = state_key(out_key)
+        st[~st_set] = 'none'
+        adata.obs[sk] = pd.Categorical(st)
+        adata.obs[f'{out_key}_with_state'] = pd.Categorical(
+            [t if s == 'none' else f'{t} ({s})' for t, s in zip(lab, st)])
+        print(f'  states in obs["{sk}"] and obs["{out_key}_with_state"]:')
+        ct = pd.crosstab(adata.obs[out_key], adata.obs[sk])
+        print(ct.loc[:, [c for c in ct.columns if c != 'none']].loc[lambda d: d.sum(1) > 0].to_string())
+    check_labels(log, adata, out_key, numeric_keys, unknown)
+    return log
+
+
+def check_labels(log, adata, out_key, numeric_keys, unknown):
+    """Naming and subcluster sanity warnings (printed; they do not change the labels)."""
+    if log.empty:
+        return
+    labels = set(log['cell_type'].astype(str))
+    for lb in sorted(labels):
+        if LAYER_LABELS.match(lb):
+            print(f'  NOTE "{lb}" is a tissue layer/system, not a cell type. It is valid only when the identity '
+                  'within the layer is ambiguous (say why in Evidence); otherwise label the types inside it '
+                  '(epidermis: Pavement, Guard, Trichome, Protodermal, species-specific types such as Bulliform '
+                  'or Subsidiary; vasculature: Xylem, Phloem, Phloem_Companion, Procambium...).')
+    # Subcluster rows that fold cells back into a broad type assigned at the base clustering
+    sub = log[(log['status'].isin(['ok', 'mostly_shadowed'])) & ~log['obs_key'].isin(numeric_keys)]
+    base = log[log['obs_key'].isin(numeric_keys) & (log['status'] != 'state_only')]
+    base_n = base.groupby('cell_type')['n_new'].sum()
+    for r in sub.itertuples():
+        ct = str(r.cell_type)
+        if ct == unknown or ct.lower() in STATE_ONLY:
+            continue
+        if ct in base_n.index and base_n[ct] >= 2 * max(int(r.n_new), 1):
+            print(f'  WARN line {r.line}: subcluster {r.obs_key}={r.cluster} labelled "{ct}", the broad type of '
+                  f'other base clusters ({int(base_n[ct]):,} cells). The parent clustering separated these cells '
+                  f'from {ct}; unless their own markers (not ambient RNA) clearly match it, keep the parent '
+                  f'lineage name (e.g. Vasculature, Trichome) or Unknown instead.')
 
 
 def set_colors(adata, key, colors, unknown):

@@ -805,8 +805,15 @@ def main():
                           width_ratios=[1, 1.25, 1.15], hspace=0.4, wspace=0.3,
                           left=0.05, right=0.97, top=0.93, bottom=0.05)
             fig.text(0.05, 0.965, ct, fontsize=13, fontweight='bold', color='black')
+            skey = 'cell_state' if args.key == 'cell_type' else f'{args.key}_state'
+            states = ''
+            if skey in adata.obs.columns:
+                vc = adata.obs.loc[mask, skey].astype(str).value_counts()
+                vc = vc[vc.index != 'none']
+                if len(vc):
+                    states = '; states: ' + ', '.join(f'{k} {v / mask.sum():.0%}' for k, v in vc.head(4).items())
             fig.text(0.05, 0.948, f"{mask.sum():,} cells ({mask.mean():.1%})"
-                     + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else ''), fontsize=8)
+                     + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else '') + states, fontsize=8)
             ax = fig.add_subplot(gs[0, 0:2])
             plot_highlight(ax, um, mask, pal.get(ct, HIGHLIGHT), size)
             axt = fig.add_subplot(gs[0, 2])
