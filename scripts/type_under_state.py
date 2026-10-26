@@ -16,10 +16,10 @@ Also reported, all within the depth band:
   - the state genes left out (the query's own program).
 
 Groups are written NAME=SPEC. SPEC is key:v1,v2 (an obs column and its values), and several are joined with '&', e.g.
-  --query Defense=c1:2,4,5 \\
-  --candidate Bundle_Sheath=c1:0,1 \\
-  --candidate "Mesophyll=leiden_res0.3:0&cell_state:none" \\
-  --control Xylem_Parenchyma=c1:3
+  --query Stressed=sub_cl7:2,4 \\
+  --candidate TypeA=sub_cl7:0,1 \\
+  --candidate "TypeB=leiden_res0.5:0&cell_state:none" \\
+  --control Other=sub_cl7:3
 Controls are scored like the query (useful to see what an intermediate score looks like).
 
 Caveats (print them with the result): candidates defined by the same marker you are testing make the comparison
@@ -28,8 +28,8 @@ Report the score as one line of evidence next to markers, reporters and UMAP pos
 
 Usage:
   python type_under_state.py --h5ad annotated.h5ad --query NAME=SPEC --candidate NAME=SPEC --candidate NAME=SPEC \\
-      [--control NAME=SPEC] [--genes Nb12g02290,Nb05g01207] [--reporters NLS3xVenus_expr] \\
-      [--reporter-cells "Treatment:GV3101_Reporter,GV3101_Reporter_P19"] [--gene-map gene_map.tsv] \\
+      [--control NAME=SPEC] [--genes <gene IDs>] [--reporters <transgene>_expr] \\
+      [--reporter-cells "Treatment:<treated groups>"] [--gene-map gene_map.tsv] \\
       [--depth-key total_counts] [--n-genes 100] [--out checks/type_under_state]
 """
 import argparse

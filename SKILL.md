@@ -725,7 +725,7 @@ cluster:
    type's body is not that type by default; summary statistics of the
    cluster's spread miss arms, so look.
 9. **States never replace the cell type.** A stress, treatment, cell-cycle
-   or senescence state can span several types (sulfur starvation in both
+   or senescence state can span several types (a stress response in both
    mesophyll and bundle-sheath cells). Keep the type and record the state
    in the annotation table's `State` column (`references/file_formats.md`).
    When a state cluster mixes types, resolve the type per cell: subcluster
@@ -738,17 +738,17 @@ cluster:
    cluster is therefore not evidence for another type. Before leaving a state
    cluster `Unknown`, judge its type on the genes the state does not change:
    ```bash
-   python scripts/type_under_state.py --h5ad adata.h5ad --query Defense=c1:2,4,5 \
-       --candidate Bundle_Sheath=c1:0,1 --candidate "Mesophyll=leiden_res0.3:0&cell_state:none" \
-       [--control Other=c1:3] [--genes <marker IDs>] [--reporters <transgene>_expr] \
-       [--reporter-cells "Treatment:<treated groups>"] --gene-map gene_map.tsv --out checks/defense_type
+   python scripts/type_under_state.py --h5ad adata.h5ad --query Stressed=sub_cl7:2,4 \
+       --candidate TypeA=sub_cl7:0,1 --candidate "TypeB=leiden_res0.5:0&cell_state:none" \
+       [--control Other=sub_cl7:3] [--genes <marker IDs>] [--reporters <transgene>_expr] \
+       [--reporter-cells "Treatment:<treated groups>"] --gene-map gene_map.tsv --out checks/state_type
    ```
    It learns each candidate pair's own genes at matched depth, leaves out
    genes the query induces or represses, and places the query on a 0–1 scale
-   (median candidate B = 0, A = 1). In a leaf atlas, defense-state cells
-   whose bundle-sheath reporter had fallen to mesophyll level scored 0.85
-   (bundle-sheath core 1, mesophyll 0) and kept the core's own genes:
-   `Bundle_Sheath` + `Defense_Response` at low confidence, not `Unknown`. Two limits, stated with the call:
+   (median candidate B = 0, A = 1). In a leaf test, defense-state cells
+   whose cell-type reporter had fallen to background still placed near that
+   type and kept its own genes: the type + the state at low confidence, not
+   `Unknown`. Two limits, stated with the call:
    - candidates defined by the marker under test make the score partly
      circular;
    - cells of one island share a regional program, so a control group from
@@ -947,7 +947,7 @@ deliverable that shows *why* each label holds. Look at it: render pages with
 python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellTypeAnnotations.txt \
     --markers markers_from_arabidopsis.tsv [markers_sorghum.tsv] --gene-map gene_map.tsv [gene_map_maize.tsv] \
     [--gene-annotation target_genes.tsv] [--colors CellTypeColors.txt] \
-    [--extra-genes Bundle_Sheath=Nb05g00210,ACA1,NPF6.2] [--alias Procambium_Dividing=Procambium,Dividing_cells] \
+    [--extra-genes Xylem=XCP1,<target gene ID>] [--alias Procambium_Dividing=Procambium,Dividing_cells] \
     [--state-genes S_Phase=H3.1,PCNA1] [--composition-keys sample treatment] \
     --output annotation_qc/annotation_report.pdf
 ```

@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.7.1] - 2026-10-26
+
+### Fixed
+- Examples taken from a test dataset are now generic: the `type_under_state.py` usage (cluster IDs, gene IDs,
+  reporter and treatment names), the SKILL.md `type_under_state` and `--extra-genes` examples, the `Confidence` and
+  `State` examples in `references/file_formats.md`, and the `apply_annotations.py` docstring.
+
 ## [0.7.0] - 2026-10-26
 
 A cell type defined by clean subclusters was extended by a later coarse row with leftover cells from the edge of the

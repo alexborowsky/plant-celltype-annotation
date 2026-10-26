@@ -17,14 +17,14 @@ type:
 
 ```
 Resolution	Cluster	CellType	State	Evidence
-sub_cl24	0	Mesophyll	Sulfur_Starvation	SULTR1;1/APR up; mesophyll program
-sub_cl24	1	Bundle_Sheath	Sulfur_Starvation	same state in BS-marker cells
-1.5	24	-	Sulfur_Starvation	state-only row: sets the state, type comes from rows above/below
+sub_cl4	0	Mesophyll	Heat_Stress	HSP up; mesophyll program
+sub_cl4	1	Bundle_Sheath	Heat_Stress	same state in BS-marker cells
+1.5	4	-	Heat_Stress	state-only row: sets the state, type comes from rows above/below
 1.5	0	Mesophyll		no state
 ```
 
 - `State` sets `obs['cell_state']` (`none` where unset) and
-  `obs['cell_type_with_state']` (`Mesophyll (Sulfur_Starvation)`).
+  `obs['cell_type_with_state']` (`Mesophyll (Heat_Stress)`).
 - A row with CellType `-` and a State is **state-only**: it records the state
   but does not claim the cells' type, which other rows assign.
 - States: stress/treatment responses, cell cycle (`S_Phase`, `G2M`),
@@ -39,9 +39,9 @@ sub_cl24	1	Bundle_Sheath	Sulfur_Starvation	same state in BS-marker cells
 
 ```
 Resolution	Cluster	CellType	State	Confidence	Evidence
-1.5	12	Guard		high	FAMA 18% vs 0%, SLAC1 28% vs 1%
-0.5	9	Phloem_Parenchyma		medium	SWEET11 65% vs 6%
-1.5	19	Xylem_Parenchyma		low	AAP6, alpha-CA; no function-tier marker
+0.8	7	Guard		high	FAMA 20% vs 0%, SLAC1 30% vs 1%
+sub_cl2	1	Phloem_Parenchyma		medium	SWEET11 60% vs 5%
+0.8	12	Companion_Cell_like		low	SUC2 only; no second marker
 ```
 
 - `apply_annotations.py` also records the row that labelled each cell in

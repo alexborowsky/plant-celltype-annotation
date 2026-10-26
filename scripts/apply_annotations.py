@@ -102,7 +102,7 @@ def parse_annotations(path):
     written per cell to obs['<key>_confidence'] and combined with the marker evidence in the report.
 
     The optional `State` column (detected by its header name) records a cell state (stress, treatment
-    response, cell cycle...) on top of the cell type, so the type persists: `Mesophyll` + `Sulfur_Starvation`.
+    response, cell cycle...) on top of the cell type, so the type persists: `Mesophyll` + `Heat_Stress`.
     A row with CellType `-` (or empty) and a State is *state-only*: it sets the state of those cells without
     claiming their type, which then comes from other rows (e.g. subcluster rows that split the state cluster
     into Mesophyll and Bundle_Sheath)."""
