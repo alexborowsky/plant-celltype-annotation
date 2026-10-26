@@ -34,6 +34,28 @@ sub_cl24	1	Bundle_Sheath	Sulfur_Starvation	same state in BS-marker cells
   not a state: write `Unknown_<program>` in `CellType` instead
   (`apply_annotations.py` warns about state names that describe no process).
 
+`Confidence` column (detected by its header; give it on every type row):
+`high`, `medium` or `low`, the analyst's confidence in that row's call.
+
+```
+Resolution	Cluster	CellType	State	Confidence	Evidence
+1.5	12	Guard		high	FAMA 18% vs 0%, SLAC1 28% vs 1%
+0.5	9	Phloem_Parenchyma		medium	SWEET11 65% vs 6%
+1.5	19	Xylem_Parenchyma		low	AAP6, alpha-CA; no function-tier marker
+```
+
+- `apply_annotations.py` writes it per cell to `obs['cell_type_confidence']`
+  (`none` where the row gave none). `medium-low` and similar are read as the
+  lower level.
+- The report gives each cell type an **overall confidence**: the lower of
+  the rows' confidence (cell-weighted median) and the marker evidence it
+  finds in the data. Marker evidence is high for a function-tier marker plus
+  another enriched gene; medium for a characterized marker, two enriched
+  genes, or level only (the type's own markers clearly higher in it, though
+  present in most cells everywhere); low otherwise. `_like` labels are capped
+  at medium and `Unknown*` labels are "unresolved". The report writes the
+  levels to `<report>_confidence.tsv`.
+
 
 - `Resolution` is either a number (read as `leiden_res<number>`) or any
   `adata.obs` column name, including labels imported with `--import-labels`.

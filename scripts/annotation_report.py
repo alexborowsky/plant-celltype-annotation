@@ -86,7 +86,7 @@ from cluster_evidence import (expression_source, gene_matrix, load_markers, natu
 from check_genes import (GeneResolver, clean, find_ref_annotation, name_tokens, ref_key,  # noqa: E402
                          SKILL_DIR)
 from apply_annotations import (parse_annotations, resolve_key, semantic_color,  # noqa: E402
-                               FALLBACK_COLORS)
+                               FALLBACK_COLORS, CONF_LEVELS, confidence_key, apply as apply_rows)
 
 warnings.filterwarnings('ignore')
 sc.settings.verbosity = 1
@@ -98,7 +98,9 @@ SPARSE_RATIO = 3.0      # detection ratio (in/out) for the sparse-marker route
 SPARSE_MIN_FRAC = 0.02  # ...with at least 2% of the cell type expressing
 STRONG_DELTA = 1.0      # level route: a >= 1 log-unit (~2.7x) mean gap for genes detected nearly everywhere
 STRONG_MIN_FRAC = 0.5   # ...with at least half of the cell type expressing
+LEVEL_DELTA = 0.3       # confidence only: a type's own markers >= 0.3 log units higher, in most cells everywhere
 CONF = {'high': 2, 'medium': 1, 'low': 0}
+CONF_COLOR = {'high': '#009E73', 'medium': '#E69F00', 'low': '#D55E00', 'unresolved': '#555555'}
 TIER = {'function': 2, 'characterized_enriched': 1, 'expression': 0}
 
 plt.rcParams.update({
@@ -533,6 +535,75 @@ def de_fallback(adata, key, cts, n_genes, use_raw, max_cells, rng):
 
 
 # ----------------------------------------------------------------------------
+# Overall confidence per cell type = the lower of (a) the analyst's Confidence of the rows that labelled its cells
+# (cell-weighted median) and (b) the marker evidence the report finds in the data; _like labels are capped at medium.
+
+RANK = {'low': 0, 'medium': 1, 'high': 2}
+
+
+def analyst_confidence(conf_cells):
+    """Cell-weighted median of the per-cell analyst confidence -> (level or '', 'high 10%, medium 90%')."""
+    vc = pd.Series(conf_cells).value_counts()
+    vc = vc[[c for c in CONF_LEVELS if c in vc.index]]
+    if vc.empty:
+        return '', 'not given'
+    ranks = np.repeat([RANK[c] for c in vc.index], vc.values)
+    med = int(np.floor(np.median(ranks)))
+    share = ', '.join(f'{c} {n / vc.sum():.0%}' for c, n in vc.items())
+    n_none = len(conf_cells) - vc.sum()
+    if n_none:
+        share += f', none given {n_none / len(conf_cells):.0%}'
+    return CONF_LEVELS[::-1][med], share
+
+
+def evidence_grade(pl, min_detect):
+    """Marker evidence found in the data -> (level, reason)."""
+    sh = pl['shown']
+    ok = sh[~sh['below_floor'].astype(bool)] if len(sh) else sh
+    tiers = list(ok['evidence']) if len(ok) else []
+    st = pl['stats']
+    x_ok = [d['term'] for d in pl['extras'] if st is not None and d['copy']['gene_id'] in st.index
+            and st.at[d['copy']['gene_id'], 'frac_in'] >= min_detect]
+    n_all = len(tiers) + len(x_ok)
+    fun = [r.symbol for r in ok.itertuples() if r.evidence == 'function'] if len(ok) else []
+    char = [r.symbol for r in ok.itertuples() if r.evidence == 'characterized_enriched'] if len(ok) else []
+    if fun and n_all >= 2:
+        return 'high', f"function-tier {fun[0]} + {n_all - 1} more enriched gene(s)"
+    if fun or char:
+        return 'medium', f"{'function' if fun else 'characterized'}-tier {(fun or char)[0]}" + (
+            f" + {n_all - 1} more" if n_all > 1 else ' only')
+    if n_all >= 2:
+        return 'medium', f"{n_all} enriched expression-level/extra genes, no characterized marker"
+    # Majority types (leaf mesophyll) are called by level: their markers are in nearly every cell (ambient RNA),
+    # so none passes the enrichment routes, but the type's own markers sit clearly higher in it
+    ac = pl['allc']
+    if len(ac):
+        lvl = ac[ac['match'].isin(['exact', 'alias']) & ~ac['enriched'].astype(bool) & (ac['frac_in'] >= 0.5)
+                 & (ac['delta'] >= LEVEL_DELTA)].drop_duplicates('symbol')
+        if len(lvl) >= 2:
+            return 'medium', (f"level only: {len(lvl)} markers higher here, in most cells everywhere "
+                              f"({', '.join(lvl['symbol'].astype(str).head(3))})")
+    if n_all == 1:
+        return 'low', 'a single expression-level or extra gene'
+    if len(sh):
+        return 'low', f'markers enriched but detected in <{min_detect:.0%} of cells'
+    return 'low', 'no enriched marker: DE genes only'
+
+
+def overall_confidence(ct, analyst, grade):
+    """-> (level, note). Unknown_* labels are unresolved; _like labels are capped at medium."""
+    if re.match(r'(?i)^unknown', ct):
+        return 'unresolved', 'Unknown label'
+    lv, note = grade, 'markers only (no analyst Confidence)'
+    if analyst:
+        lv = analyst if RANK[analyst] <= RANK[grade] else grade
+        note = 'analyst' if RANK[analyst] < RANK[grade] else 'markers' if RANK[grade] < RANK[analyst] else 'both'
+    if re.search(r'(?i)_like$', ct) and RANK[lv] > RANK['medium']:
+        lv, note = 'medium', '_like label (capped)'
+    return lv, note
+
+
+# ----------------------------------------------------------------------------
 # States (State column of the annotation table -> obs['cell_state'])
 
 COMPOSITION_RE = re.compile(r'^(sample|samples|batch|treatment|condition|genotype|replicate|rep|timepoint|time|'
@@ -837,6 +908,40 @@ def main():
     if state_names:
         print(f'  {len(state_names)} states in obs[{skey}]; composition keys {comp_keys}')
 
+    # ---- overall confidence per cell type
+    ckey = confidence_key(args.key)
+    conf_cells = None
+    if ckey in adata.obs.columns:
+        conf_cells = adata.obs[ckey].astype(str).to_numpy()
+    elif ann['confidence'].astype(str).str.strip().ne('').any():
+        # older h5ad without the column: replay the table's rows to assign each cell its row's confidence
+        import contextlib
+        import io
+        tmp = sc.AnnData(obs=adata.obs.copy())
+        with contextlib.redirect_stdout(io.StringIO()):
+            apply_rows(tmp, ann, '_conf_replay', args.unknown_label)
+        ck2 = confidence_key('_conf_replay')
+        if ck2 in tmp.obs.columns:
+            conf_cells = tmp.obs[ck2].astype(str).to_numpy()
+            print(f'  analyst confidence replayed from the annotation table ({ckey} not in obs)')
+    conf = {}
+    for ct in cts + qc_cts:
+        m = labels == ct
+        an, share = analyst_confidence(conf_cells[m]) if conf_cells is not None else ('', 'not given')
+        if ct in plans:
+            gr, why = evidence_grade(plans[ct], args.min_detect)
+        else:
+            gr, why = 'low', 'QC class'
+        lv, note = overall_confidence(ct, an, gr)
+        conf[ct] = dict(overall=lv, decided_by=note, analyst=an or 'none', analyst_cells=share,
+                        markers=gr, marker_reason=why)
+    conf_tsv = os.path.splitext(args.output)[0] + '_confidence.tsv'
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    cdf = pd.DataFrame.from_dict(conf, orient='index').rename_axis('cell_type')
+    cdf.insert(0, 'cells', [int((labels == c).sum()) for c in cdf.index])
+    cdf.to_csv(conf_tsv, sep='\t')
+    print(f'  overall confidence: {cdf["overall"].value_counts().to_dict()} -> {conf_tsv}')
+
     # ---- PDF
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     summary = []
@@ -884,20 +989,30 @@ def main():
             else:
                 best = 'none enriched: DE only'
             nshow = f"{len(sh)}" + (f"+{len(pl['extras'])}x" if pl['extras'] else '')
-            summary.append([ct, f"{pl['mask'].sum():,}", f"{pl['mask'].mean():.1%}", nshow, best])
+            summary.append([ct, f"{pl['mask'].sum():,}", f"{pl['mask'].mean():.1%}", conf[ct]['overall'], nshow,
+                            best])
         for ct in qc_cts:
             m = labels == ct
-            summary.append([ct, f"{m.sum():,}", f"{m.mean():.1%}", '-', 'QC class (no page)'])
+            summary.append([ct, f"{m.sum():,}", f"{m.mean():.1%}", '-', '-', 'QC class (no page)'])
         if summary:
-            tbl = axt.table(cellText=summary, colLabels=['Cell type', 'Cells', '%', 'Markers', 'Strongest marker'],
+            tbl = axt.table(cellText=summary, colLabels=['Cell type', 'Cells', '%', 'Confidence', 'Markers',
+                                                         'Strongest marker'],
                             loc='upper center', cellLoc='left', colLoc='left',
-                            colWidths=[0.25, 0.1, 0.08, 0.08, 0.49])
+                            colWidths=[0.21, 0.08, 0.06, 0.115, 0.08, 0.455])
             tbl.auto_set_font_size(False)
             tbl.set_fontsize(7)
             for (r, c), cell in tbl.get_celld().items():
                 cell.set_edgecolor('#DDDDDD')
                 if r == 0:
                     cell.set_text_props(fontweight='bold')
+                elif c == 3:
+                    cell.set_text_props(color=CONF_COLOR.get(summary[r - 1][3], 'black'))
+            fig.text(0.06, 0.035, '\n'.join(textwrap.wrap(
+                "Confidence: the lower of the annotation table's Confidence (cell-weighted) and the marker evidence "
+                'found here (high: a function-tier marker + another enriched gene; medium: a characterized marker, '
+                'two enriched genes, or level only; low: one expression-level gene or DE only). _like labels are '
+                f'capped at medium. Details on each page and in {os.path.basename(conf_tsv)}.', 175)),
+                fontsize=6, va='bottom', color='#333333')
         pdf.savefig(fig)
         plt.close(fig)
 
@@ -994,7 +1109,7 @@ def main():
             fig = plt.figure(figsize=(8.5, 11))
             gs = GridSpec(1 + n_rows, 3, figure=fig, height_ratios=[1.6] + [1] * n_rows,
                           width_ratios=[1, 1.25, 1.15], hspace=0.4, wspace=0.3,
-                          left=0.05, right=0.97, top=0.93, bottom=0.05)
+                          left=0.05, right=0.97, top=0.9, bottom=0.05)
             fig.text(0.05, 0.965, ct, fontsize=13, fontweight='bold', color='black')
             skey = 'cell_state' if args.key == 'cell_type' else f'{args.key}_state'
             st_text = ''
@@ -1005,6 +1120,14 @@ def main():
                     st_text = '; states: ' + ', '.join(f'{k} {v / mask.sum():.0%}' for k, v in vc.head(4).items())
             fig.text(0.05, 0.948, f"{mask.sum():,} cells ({mask.mean():.1%})"
                      + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else '') + st_text, fontsize=8)
+            cf_ = conf[ct]
+            t0 = fig.text(0.05, 0.934, f"Confidence: {cf_['overall']}", fontsize=8, fontweight='bold', va='top',
+                          color=CONF_COLOR.get(cf_['overall'], 'black'))
+            x1 = fig.transFigure.inverted().transform(
+                t0.get_window_extent(fig.canvas.get_renderer()).p1)[0] + 0.008
+            fig.text(x1, 0.934, '\n'.join(textwrap.wrap(
+                f"(table rows: {cf_['analyst_cells']}; markers: {cf_['markers']}, {cf_['marker_reason']}; "
+                f"set by {cf_['decided_by']})", 125)), fontsize=7, va='top')
             ax = fig.add_subplot(gs[0, 0:2])
             plot_highlight(ax, um, mask, pal.get(ct, HIGHLIGHT), size)
             axt = fig.add_subplot(gs[0, 2])

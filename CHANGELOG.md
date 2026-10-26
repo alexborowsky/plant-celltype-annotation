@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.6.0] - 2026-10-26
+
+### Added
+- **Overall confidence per cell type in the report** (overview table column, a line on each cell-type page, and
+  `<report>_confidence.tsv`). It is the lower of:
+  - the annotation table's `Confidence` (cell-weighted median over the rows that labelled the cells);
+  - the marker evidence found in the data: high for a function-tier marker plus another enriched gene; medium for a
+    characterized marker, two enriched genes, or level only (the type's own markers clearly higher, though present in
+    most cells everywhere); low for one expression-level gene or DE only.
+  `_like` labels are capped at medium; `Unknown*` labels are "unresolved". Each page says which side set the level.
+- **`Confidence` column in the annotation table** (high / medium / low), parsed by `apply_annotations.py` and written
+  per cell to `obs['cell_type_confidence']`. Before, a Confidence column was read as part of the Evidence text.
+  The report replays the table for h5ad files annotated before this version.
+
 ## [0.5.0] - 2026-10-23
 
 In the blinded leaf-atlas re-run, a defense-state subset was left `Unknown` because its cell-type reporter had fallen

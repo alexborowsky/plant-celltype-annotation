@@ -640,7 +640,9 @@ cluster:
    - **Cap confidence by detection.** If the best marker for a call is
      detected in fewer than ~15% of the cluster's cells, the call is `low`
      at most, whatever the score; a score driven by one gene (`[1 gene]` in
-     the evidence file) is a lead, not a call.
+     the evidence file) is a lead, not a call. Record each row's level in
+     the annotation table's `Confidence` column (high / medium / low); the
+     report combines it with the marker evidence into an overall level.
    - **Rows from the wrong organ or lineage can win** (a periderm row in a
      root tip, an embryo-sac row in a panicle). Check that the top type
      exists in this tissue (`expected_cell_types.tsv`) before reading the
@@ -953,6 +955,16 @@ The PDF contains:
     clusters of the defining key (the annotated clusters highlighted), and
     a text panel with the marker's evidence tier, homology (locus, rank,
     % identity, RBH, rescue), basis, source, and in-data enrichment
+- **Overall confidence per cell type** on the overview table and each page:
+  the lower of the annotation table's `Confidence` (cell-weighted median
+  over the rows that labelled the cells) and the marker evidence found in
+  the data (high: a function-tier marker + another enriched gene; medium: a
+  characterized marker, two enriched genes, or level only; low: one
+  expression-level gene or DE only). `_like` labels are capped at medium.
+  The page says which side set the level; `<report>_confidence.tsv` lists
+  them. Give every type row a `Confidence` (`references/file_formats.md`).
+  When the markers set the level below yours, either find the missing
+  evidence (`--extra-genes`) or lower your row.
 - **A States page** (when the table has a State column): a UMAP coloured by
   state, and a table of each state's cells, the cell types carrying it,
   the sample with the highest share, and the annotation rows that set it.

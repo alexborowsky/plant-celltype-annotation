@@ -96,7 +96,10 @@ def semantic_color(name):
 
 
 def parse_annotations(path):
-    """Annotation table: Resolution, Cluster, CellType[, State], Evidence (tab-separated, header row).
+    """Annotation table: Resolution, Cluster, CellType[, State][, Confidence], Evidence (tab-separated, header row).
+
+    The optional `Confidence` column (high / medium / low) is the analyst's confidence in the row's call; it is
+    written per cell to obs['<key>_confidence'] and combined with the marker evidence in the report.
 
     The optional `State` column (detected by its header name) records a cell state (stress, treatment
     response, cell cycle...) on top of the cell type, so the type persists: `Mesophyll` + `Sulfur_Starvation`.
@@ -108,6 +111,7 @@ def parse_annotations(path):
         header = [h.strip().lower() for h in fh.readline().rstrip('\n').split('\t')]
         i_state = header.index('state') if 'state' in header else None
         i_ev = header.index('evidence') if 'evidence' in header else None
+        i_conf = header.index('confidence') if 'confidence' in header else None
         for ln, line in enumerate(fh, start=2):
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
@@ -118,18 +122,41 @@ def parse_annotations(path):
                     continue
                 res, cl, ct = parts[:3]
                 state = parts[i_state] if i_state is not None and i_state < len(parts) else ''
+                conf = norm_confidence(parts[i_conf] if i_conf is not None and i_conf < len(parts) else '', ln)
                 if i_ev is not None:
-                    ev = ' '.join(parts[i_ev:])
+                    ev = ' '.join(p for j, p in enumerate(parts[i_ev:], start=i_ev) if j != i_conf)
                 else:
-                    ev = ' '.join(p for j, p in enumerate(parts[3:], start=3) if j != i_state)
+                    ev = ' '.join(p for j, p in enumerate(parts[3:], start=3) if j not in (i_state, i_conf))
             else:  # legacy whitespace-delimited
                 parts = line.split()
                 if len(parts) < 3:
                     print(f'  WARN line {ln}: <3 columns, skipped')
                     continue
-                res, cl, ct, ev, state = parts[0], parts[1], '_'.join(parts[2:]), '', ''
-            rows.append({'line': ln, 'key_spec': res, 'cluster': cl, 'cell_type': ct, 'state': state, 'evidence': ev})
-    return pd.DataFrame(rows, columns=['line', 'key_spec', 'cluster', 'cell_type', 'state', 'evidence'])
+                res, cl, ct, ev, state, conf = parts[0], parts[1], '_'.join(parts[2:]), '', '', ''
+            rows.append({'line': ln, 'key_spec': res, 'cluster': cl, 'cell_type': ct, 'state': state,
+                         'confidence': conf, 'evidence': ev})
+    return pd.DataFrame(rows, columns=['line', 'key_spec', 'cluster', 'cell_type', 'state', 'confidence', 'evidence'])
+
+
+CONF_LEVELS = ['high', 'medium', 'low']
+
+
+def norm_confidence(x, ln=None):
+    """high / medium / low ('' when not given); 'med', 'medium-high' etc. map to the lower named level."""
+    t = str(x).strip().lower().replace('_', '-')
+    if t in ('', '-', 'na', 'none', 'nan'):
+        return ''
+    if t in CONF_LEVELS:
+        return t
+    for lvl in ('low', 'med', 'high'):  # 'medium-low' -> low, 'med' -> medium, 'medium-high' -> medium
+        if lvl in t:
+            return 'medium' if lvl == 'med' else lvl
+    print(f'  WARN line {ln}: Confidence "{x}" is not high/medium/low; ignored')
+    return ''
+
+
+def confidence_key(out_key):
+    return 'cell_type_confidence' if out_key == 'cell_type' else f'{out_key}_confidence'
 
 
 # Tissue layers / tissue systems are not cell types: label the types inside them.
@@ -225,6 +252,7 @@ def apply(adata, ann, out_key, unknown):
     claimed = np.zeros(adata.n_obs, dtype=bool)  # an explicit Unknown row also claims its cells
     st = np.array([''] * adata.n_obs, dtype=object)
     st_set = np.zeros(adata.n_obs, dtype=bool)
+    cf = np.array([''] * adata.n_obs, dtype=object)
     log = []
     cols = set(adata.obs.columns)
     numeric_keys = set()
@@ -258,6 +286,7 @@ def apply(adata, ann, out_key, unknown):
         n_new = int((in_cl & free).sum())
         n_sh = int((in_cl & ~free).sum())
         lab[in_cl & free] = r.cell_type
+        cf[in_cl & free] = str(getattr(r, 'confidence', '') or '')
         if state:
             m = in_cl & free & ~st_set
             st[m] = state
@@ -288,6 +317,16 @@ def apply(adata, ann, out_key, unknown):
         print(f'  states in obs["{sk}"] and obs["{out_key}_with_state"]:')
         ct = pd.crosstab(adata.obs[out_key], adata.obs[sk])
         print(ct.loc[:, [c for c in ct.columns if c != 'none']].loc[lambda d: d.sum(1) > 0].to_string())
+    if (cf != '').any():
+        ck = confidence_key(out_key)
+        typed = lab != unknown
+        cf[cf == ''] = 'none'
+        adata.obs[ck] = pd.Categorical(cf, categories=CONF_LEVELS + ['none'])
+        print(f'  analyst confidence in obs["{ck}"]:')
+        print(pd.crosstab(adata.obs[out_key], adata.obs[ck]).loc[lambda d: d.sum(1) > 0].to_string())
+        miss = sorted(set(lab[typed & (cf == 'none')]))
+        if miss:
+            print(f'  WARN cells of {miss} come from rows without a Confidence; give every type row one')
     check_labels(log, adata, out_key, numeric_keys, unknown)
     return log
 

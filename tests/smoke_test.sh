@@ -98,8 +98,9 @@ import scanpy as sc, pandas as pd
 a = sc.read_h5ad('synthetic.h5ad')
 t = pd.read_csv('CellTypeAnnotations.txt', sep='\t', dtype=str)
 t.insert(3, 'State', '')
+t.insert(4, 'Confidence', 'medium')
 cl = a.obs['leiden_res0.8'].astype(str).value_counts().index[0]
-t.loc[len(t)] = ['0.8', cl, '-', 'Heat_Stress', f'state-only test row; {a.var_names[0]} cited']
+t.loc[len(t)] = ['0.8', cl, '-', 'Heat_Stress', '', f'state-only test row; {a.var_names[0]} cited']
 t.to_csv('CellTypeAnnotations_state.txt', sep='\t', index=False)
 EOF
 python "$S/apply_annotations.py" --h5ad synthetic.h5ad --annotations CellTypeAnnotations_state.txt \
@@ -109,6 +110,14 @@ python "$S/annotation_report.py" --h5ad annotated_state.h5ad --annotations CellT
     --markers markers_rice.tsv --output annotation_qc/report_state.pdf > report_state.log
 if grep -q "state page: Heat_Stress (.*1 cited)" report_state.log; then echo "PASS: state page with cited gene"
 else echo "FAIL: no state page"; tail -5 report_state.log; exit 1; fi
+python - <<'EOF'
+import pandas as pd
+c = pd.read_csv('annotation_qc/report_state_confidence.tsv', sep='\t', index_col=0)
+print(c[['cells', 'overall', 'analyst', 'markers']].to_string())
+assert set(c['analyst']) <= {'medium', 'none'} and c['overall'].isin(['high', 'medium', 'low', 'unresolved']).all()
+assert (c['overall'] != 'high').all(), 'overall confidence above the analyst level'
+print('PASS: overall confidence')
+EOF
 
 step "7e. type_under_state: a state subset keeps its type on the genes the state leaves alone"
 python - <<'EOF'
