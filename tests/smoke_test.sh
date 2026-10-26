@@ -117,6 +117,10 @@ print(c[['cells', 'overall', 'analyst', 'markers']].to_string())
 assert set(c['analyst']) <= {'medium', 'none'} and c['overall'].isin(['high', 'medium', 'low', 'unresolved']).all()
 assert (c['overall'] != 'high').all(), 'overall confidence above the analyst level'
 print('PASS: overall confidence')
+import scanpy as sc
+o = sc.read_h5ad('annotated_state.h5ad').obs
+assert 'cell_type_source' in o and (o.loc[o['cell_type'] != 'Unknown', 'cell_type_source'] != 'none').all()
+print('PASS: per-cell annotation row recorded')
 EOF
 
 step "7e. type_under_state: a state subset keeps its type on the genes the state leaves alone"

@@ -921,6 +921,17 @@ python scripts/apply_annotations.py --h5ad data.h5ad --annotations CellTypeAnnot
   cells. A shadowed row is harmless when it is a deliberate coarse fallback
   whose cells were all labelled at finer resolution. Otherwise it signals a
   wrong row order or a wrong cluster ID.
+- **A coarse fallback row for a type you defined by subclusters adds the
+  cells the subclustering left out**, and those are often the edge of a
+  neighbouring type. Example: subclusters of the vascular cluster defined
+  phloem parenchyma; a later res1.5 row for the same type added cells from
+  the mesophyll cluster's edge with half the SWEET detection. The
+  subclusters are the definition. Add a fallback row only
+  when its leftover cells carry the type's markers. `apply_annotations.py`
+  warns when a row adds cells to a type that earlier rows already defined,
+  and says which parent clusters they come from. The report's cell-type page
+  lists cells by annotation row with the top marker's detection in each:
+  drop rows whose cells are clearly weaker.
 - Review `annotation_qc/` with the user:
   - Marker dotplot by cell type: is the diagonal clean?
   - Cell-type × cluster crosstab.
@@ -950,9 +961,11 @@ The PDF contains:
   without the h5ad.
 - **One page per cell type**, which shows:
   - a UMAP highlighting the type, and the annotation rows with their
-    Evidence text
+    Evidence text; when several rows labelled it, the cells from each row
+    with the top marker's detection in them (`obs['cell_type_source']`)
   - for each marker: a viridis expression UMAP, violins across the
-    clusters of the defining key (the annotated clusters highlighted), and
+    clusters of the defining key (the key of the rows that labelled most
+    of the type's cells; the annotated clusters highlighted), and
     a text panel with the marker's evidence tier, homology (locus, rank,
     % identity, RBH, rescue), basis, source, and in-data enrichment
 - **Overall confidence per cell type** on the overview table and each page:

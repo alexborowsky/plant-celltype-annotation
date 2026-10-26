@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.7.0] - 2026-10-26
+
+A cell type defined by clean subclusters was extended by a later coarse row with leftover cells from the edge of the
+neighbouring (majority) cluster, and its report page plotted the coarse cluster instead of the subclusters.
+
+### Added
+- `apply_annotations.py` records the row that labelled each cell in `obs['cell_type_source']`, and warns when a row
+  adds cells (>= 50, or >= 5% of the type) to a type that earlier rows already defined, naming the parent clusters
+  those cells come from.
+- Report cell-type pages list **cells by annotation row** with the top marker's detection in each row's cells.
+- SKILL.md Step 9: add a coarse fallback row for a subcluster-defined type only when its leftover cells carry the
+  markers.
+
+### Changed
+- The report's violins use the key of the rows that labelled most of the type's cells, not the key whose clusters
+  overlap most of them (a coarse fallback row could win before).
+- For h5ad files without the new columns, the report replays the table once for both source rows and confidence,
+  and warns if the replay does not reproduce the labels.
+
 ## [0.6.0] - 2026-10-26
 
 ### Added

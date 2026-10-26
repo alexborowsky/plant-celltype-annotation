@@ -159,6 +159,11 @@ def confidence_key(out_key):
     return 'cell_type_confidence' if out_key == 'cell_type' else f'{out_key}_confidence'
 
 
+def source_key(out_key):
+    """obs column naming the annotation row ('<Resolution>:<Cluster>') that labelled each cell."""
+    return 'cell_type_source' if out_key == 'cell_type' else f'{out_key}_source'
+
+
 # Tissue layers / tissue systems are not cell types: label the types inside them.
 LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_bundle|vascular_tissue|stele|'
                           r'ground_tissue|ground)$', re.I)
@@ -256,6 +261,16 @@ def apply(adata, ann, out_key, unknown):
     log = []
     cols = set(adata.obs.columns)
     numeric_keys = set()
+    src = np.array([''] * adata.n_obs, dtype=object)
+    by_type = {}  # cell type -> cells assigned so far
+    # coarsest numeric resolution in the table: used to say where leftover cells of a fallback row come from
+    nums = []
+    for k in ann['key_spec']:
+        try:
+            nums.append((float(k), resolve_key(k, cols)))
+        except ValueError:
+            pass
+    base_key = min((x for x in nums if x[1]), default=(None, None))[1]
     for r in ann.itertuples():
         key = resolve_key(r.key_spec, cols)
         state = str(getattr(r, 'state', '') or '').strip()
@@ -287,6 +302,20 @@ def apply(adata, ann, out_key, unknown):
         n_sh = int((in_cl & ~free).sum())
         lab[in_cl & free] = r.cell_type
         cf[in_cl & free] = str(getattr(r, 'confidence', '') or '')
+        src[in_cl & free] = f'{r.key_spec}:{r.cluster}'
+        if (n_sh > 0.5 * in_cl.sum() and by_type.get(r.cell_type, 0) > 0
+                and n_new >= max(50, 0.05 * (by_type[r.cell_type] + n_new))):
+            # A fallback row: earlier (usually finer) rows already defined this type, and this row adds the cells
+            # they left out. Those cells are often the edge of a neighbouring type, not more of this one.
+            new = in_cl & free
+            where = ''
+            if base_key and base_key in adata.obs.columns:
+                vc = adata.obs.loc[new, base_key].astype(str).value_counts()
+                where = '; they come from ' + ', '.join(f'{base_key} {c} ({n:,})' for c, n in vc.head(3).items())
+            print(f'  WARN line {r.line}: {key}={r.cluster} adds {n_new:,} cells to {r.cell_type}, which earlier rows '
+                  f'already defined ({by_type[r.cell_type]:,} cells); {n_sh:,} of its {int(in_cl.sum()):,} cells were '
+                  f'taken by earlier rows{where}. Check their markers (report: cells by row) before keeping it.')
+        by_type[r.cell_type] = by_type.get(r.cell_type, 0) + n_new
         if state:
             m = in_cl & free & ~st_set
             st[m] = state
@@ -317,6 +346,9 @@ def apply(adata, ann, out_key, unknown):
         print(f'  states in obs["{sk}"] and obs["{out_key}_with_state"]:')
         ct = pd.crosstab(adata.obs[out_key], adata.obs[sk])
         print(ct.loc[:, [c for c in ct.columns if c != 'none']].loc[lambda d: d.sum(1) > 0].to_string())
+    sk_ = source_key(out_key)
+    src[src == ''] = 'none'
+    adata.obs[sk_] = pd.Categorical(src)
     if (cf != '').any():
         ck = confidence_key(out_key)
         typed = lab != unknown

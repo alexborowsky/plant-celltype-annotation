@@ -44,6 +44,8 @@ Resolution	Cluster	CellType	State	Confidence	Evidence
 1.5	19	Xylem_Parenchyma		low	AAP6, alpha-CA; no function-tier marker
 ```
 
+- `apply_annotations.py` also records the row that labelled each cell in
+  `obs['cell_type_source']` (`<Resolution>:<Cluster>`).
 - `apply_annotations.py` writes it per cell to `obs['cell_type_confidence']`
   (`none` where the row gave none). `medium-low` and similar are read as the
   lower level.

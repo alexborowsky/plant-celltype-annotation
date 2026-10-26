@@ -86,7 +86,7 @@ from cluster_evidence import (expression_source, gene_matrix, load_markers, natu
 from check_genes import (GeneResolver, clean, find_ref_annotation, name_tokens, ref_key,  # noqa: E402
                          SKILL_DIR)
 from apply_annotations import (parse_annotations, resolve_key, semantic_color,  # noqa: E402
-                               FALLBACK_COLORS, CONF_LEVELS, confidence_key, apply as apply_rows)
+                               FALLBACK_COLORS, CONF_LEVELS, confidence_key, source_key, apply as apply_rows)
 
 warnings.filterwarnings('ignore')
 sc.settings.verbosity = 1
@@ -796,6 +796,27 @@ def main():
     print(f'  {len(cts)} cell types; {len(set(markers["gene_id"]) & set(mk_found))} marker genes in data'
           + (f'; {len(xgenes)} extra gene copies' if xgenes else ''))
 
+    # ---- per-cell annotation row and analyst confidence (from apply_annotations; replayed for older h5ad files)
+    ckey, skey_src = confidence_key(args.key), source_key(args.key)
+    conf_cells = adata.obs[ckey].astype(str).to_numpy() if ckey in adata.obs.columns else None
+    src_cells = adata.obs[skey_src].astype(str).to_numpy() if skey_src in adata.obs.columns else None
+    if src_cells is None or (conf_cells is None and ann['confidence'].astype(str).str.strip().ne('').any()):
+        import contextlib
+        import io
+        tmp = sc.AnnData(obs=adata.obs.copy())
+        with contextlib.redirect_stdout(io.StringIO()):
+            apply_rows(tmp, ann, '_replay', args.unknown_label)
+        same = (tmp.obs['_replay'].astype(str).to_numpy() == labels).mean()
+        if same < 0.99:
+            print(f'  WARN replaying the annotation table reproduces only {same:.1%} of {args.key}; '
+                  'per-row breakdown and analyst confidence may not match the h5ad')
+        if src_cells is None and source_key('_replay') in tmp.obs.columns:
+            src_cells = tmp.obs[source_key('_replay')].astype(str).to_numpy()
+            print(f'  annotation rows replayed from the table ({skey_src} not in obs)')
+        if conf_cells is None and confidence_key('_replay') in tmp.obs.columns:
+            conf_cells = tmp.obs[confidence_key('_replay')].astype(str).to_numpy()
+            print(f'  analyst confidence replayed from the table ({ckey} not in obs)')
+
     # ---- per cell type: choose key, clusters, markers
     plans = {}
     need_de = []
@@ -803,7 +824,18 @@ def main():
         mask = labels == ct
         rows = ann[ann['cell_type'].str.lower() == ct.lower()]  # apply_annotations may re-case names
         best_key, best_n, clusters = None, -1, []
-        for k, sub in rows.groupby('obs_key'):
+        by_src = pd.Series(src_cells[mask]).value_counts() if src_cells is not None else pd.Series(dtype=int)
+        by_src = by_src[by_src.index != 'none']
+        if len(by_src):
+            # the key of the rows that labelled most of the type's cells (subclusters, not a coarse fallback row)
+            spec_n = by_src.groupby([x.rsplit(':', 1)[0] for x in by_src.index]).sum()
+            spec = spec_n.idxmax()
+            sub = rows[rows['key_spec'].astype(str) == spec]
+            if len(sub) and sub['obs_key'].iloc[0]:
+                best_key = sub['obs_key'].iloc[0]
+                clusters = [c.strip() for v in sub['cluster'].astype(str) for c in v.split(',') if c.strip()]
+                best_n = int(spec_n.max())
+        for k, sub in (rows.groupby('obs_key') if best_key is None else []):
             if not k:
                 continue
             kl = adata.obs[k].astype(str).to_numpy()
@@ -834,7 +866,7 @@ def main():
         if len(extras) > args.max_extra:
             print(f'  WARN {ct}: {len(extras)} extra genes, showing the first {args.max_extra}')
             extras = extras[:args.max_extra]
-        plans[ct] = dict(mask=mask, key=best_key, clusters=clusters, rows=rows, shown=shown,
+        plans[ct] = dict(mask=mask, key=best_key, clusters=clusters, rows=rows, shown=shown, by_src=by_src,
                          not_enriched=not_enriched, below=below, allc=allc, stats=st, extras=extras,
                          extra_missing=extra_missing.get(ct, []))
         if shown.empty and not extras:
@@ -909,21 +941,6 @@ def main():
         print(f'  {len(state_names)} states in obs[{skey}]; composition keys {comp_keys}')
 
     # ---- overall confidence per cell type
-    ckey = confidence_key(args.key)
-    conf_cells = None
-    if ckey in adata.obs.columns:
-        conf_cells = adata.obs[ckey].astype(str).to_numpy()
-    elif ann['confidence'].astype(str).str.strip().ne('').any():
-        # older h5ad without the column: replay the table's rows to assign each cell its row's confidence
-        import contextlib
-        import io
-        tmp = sc.AnnData(obs=adata.obs.copy())
-        with contextlib.redirect_stdout(io.StringIO()):
-            apply_rows(tmp, ann, '_conf_replay', args.unknown_label)
-        ck2 = confidence_key('_conf_replay')
-        if ck2 in tmp.obs.columns:
-            conf_cells = tmp.obs[ck2].astype(str).to_numpy()
-            print(f'  analyst confidence replayed from the annotation table ({ckey} not in obs)')
     conf = {}
     for ct in cts + qc_cts:
         m = labels == ct
@@ -1131,7 +1148,22 @@ def main():
             ax = fig.add_subplot(gs[0, 0:2])
             plot_highlight(ax, um, mask, pal.get(ct, HIGHLIGHT), size)
             axt = fig.add_subplot(gs[0, 2])
-            lines = ['**Annotation rows (applied in file order)']
+            lines = []
+            if len(pl['by_src']) > 1:
+                g0 = (sh.iloc[0]['gene_id'] if len(sh) else pl['extras'][0]['copy']['gene_id'] if pl['extras']
+                      else None)
+                s0 = (sh.iloc[0]['symbol'] if len(sh) else pl['extras'][0]['term'] if pl['extras'] else '')
+                v0 = None
+                if g0 is not None and g0 in col:
+                    v0 = Mk[:, col[g0]]
+                    v0 = (v0.toarray().ravel() if sparse.issparse(v0) else np.asarray(v0).ravel()) > 0
+                lines.append('**Cells by annotation row' + (f' ({s0} detected; {v0[~mask].mean():.0%} outside the '
+                                                            'type)' if v0 is not None else ''))
+                srcm = src_cells[mask]
+                for sname, n in pl['by_src'].items():
+                    det = f', {s0} {v0[mask][srcm == sname].mean():.0%}' if v0 is not None else ''
+                    lines.append(f"{sname}: {n:,} cells ({n / mask.sum():.0%}){det}")
+            lines.append('**Annotation rows (applied in file order)')
             for r in pl['rows'].itertuples():
                 lines.append(f"{r.key_spec} cluster {r.cluster}: {r.evidence or '(no Evidence text)'}")
             bl = pl['below']
