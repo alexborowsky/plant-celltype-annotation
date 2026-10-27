@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.8.0] - 2026-10-27
+
+A blinded leaf-atlas run assembled types from many subclusters and fallback rows (52 rows, 6 subclusterings).
+
+### Changed
+- **Subclustering is for two cases only:** an expected type's function marker confined to a subset of one cluster,
+  or a cluster that clearly mixes two types. Check existing resolutions first; a low-confidence label or `Unknown` is
+  an acceptable answer; use low subcluster resolutions (0.1-0.3). Step 7 items 5 and 9 and the "expected type with no
+  cluster" check no longer send the agent to subclustering by default.
+- **The fold-back rule is generic:** a subcluster does not join a type defined by another, larger cluster (any type,
+  not only the majority one). **Exception: cell-cycle clusters**, whose subclusters are expected to split among the
+  types roughly as the dataset does.
+- **Don't assemble a type from many pieces:** define each type by one cluster (or a few) at one resolution.
+
+### Added
+- `apply_annotations.py`: the fold-back warning compares a subcluster row with the type's cells from other cluster keys
+  (not only base resolutions), skips cell-cycle rows and prints each cycling cluster's type split next to the dataset's
+  shares; notes types assembled from three or more cluster keys (cell-cycle rows not counted) and more than four
+  subclustering keys.
+
 ## [0.7.1] - 2026-10-26
 
 ### Fixed

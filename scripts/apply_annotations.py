@@ -168,6 +168,7 @@ def source_key(out_key):
 LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_bundle|vascular_tissue|stele|'
                           r'ground_tissue|ground)$', re.I)
 STATE_ONLY = {'', '-', 'na', 'none'}
+CELL_CYCLE = re.compile(r's_?phase|g2_?m|g1_?s|cell_?cycle|cycling|mitot|dividing|prolif|endoredup', re.I)
 # State names that describe a tested process. Anything else (e.g. '<gene>_<gene>_program') looks like an unexplained
 # private program, which belongs in CellType as Unknown_<program>, not as a state on the majority type.
 KNOWN_STATE = re.compile(r's_?phase|g2_?m|g1|cycl|mitot|divid|endored|stress|respon|heat|cold|chill|drought|osmot|salt|'
@@ -386,19 +387,54 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
               + (' and the Evidence calls it unexplained' if unexplained else '')
               + '. A private program you cannot explain is not a state: label the cluster '
               f'Unknown_<program> in CellType (a "{ct}" background of shared genes does not set the type).')
-    # Subcluster rows that fold cells back into a broad type assigned at the base clustering
-    sub = log[(log['status'].isin(['ok', 'mostly_shadowed'])) & ~log['obs_key'].isin(numeric_keys)]
-    base = log[log['obs_key'].isin(numeric_keys) & (log['status'] != 'state_only')]
-    base_n = base.groupby('cell_type')['n_new'].sum()
-    for r in sub.itertuples():
-        ct = str(r.cell_type)
-        if ct == unknown or ct.lower() in STATE_ONLY:
+    # Subcluster rows that fold cells back into a type defined by a larger cluster elsewhere (another cluster key).
+    # Exception: cell-cycle subclusters, whose cells are expected to split among the types roughly as the dataset does.
+    typed = log[(log['status'].isin(['ok', 'mostly_shadowed'])) & (log['status'] != 'state_only')
+                & ~log['cell_type'].astype(str).str.lower().isin(STATE_ONLY) & (log['cell_type'] != unknown)]
+    by_key = typed.groupby(['cell_type', 'obs_key'])['n_new'].sum()
+    st_col = typed['state'].astype(str) if 'state' in typed.columns else pd.Series('', index=typed.index)
+    cycling_rows = []
+    for r, st in zip(typed.itertuples(), st_col):
+        if r.obs_key in numeric_keys:
             continue
-        if ct in base_n.index and base_n[ct] >= 2 * max(int(r.n_new), 1):
-            print(f'  WARN line {r.line}: subcluster {r.obs_key}={r.cluster} labelled "{ct}", the broad type of '
-                  f'other base clusters ({int(base_n[ct]):,} cells). The parent clustering separated these cells '
-                  f'from {ct}; unless their own markers (not ambient RNA) clearly match it, keep the parent '
-                  f'lineage name (e.g. Vasculature, Trichome) or Unknown instead.')
+        ct = str(r.cell_type)
+        other = int(by_key.loc[ct].drop(r.obs_key, errors='ignore').sum())
+        if other < 2 * max(int(r.n_new), 1):
+            continue
+        if CELL_CYCLE.search(st):
+            cycling_rows.append((r, other))
+            continue
+        print(f'  WARN line {r.line}: subcluster {r.obs_key}={r.cluster} labelled "{ct}", a type defined by larger '
+              f'clusters elsewhere ({other:,} cells). The parent clustering separated these cells from {ct}; unless '
+              f'their own markers (not shared or ambient RNA) match {ct} as well as its defining cells do, keep the '
+              f"parent cluster's label, its lineage/layer name, or Unknown.")
+    if cycling_rows:
+        print('  NOTE cell-cycle subclusters assigned to types defined elsewhere (allowed): '
+              + '; '.join(f'line {r.line} {r.obs_key}={r.cluster} -> {r.cell_type} ({int(r.n_new):,})'
+                          for r, _ in cycling_rows))
+        # their split should roughly follow the types' shares in the dataset (allowing for which types still divide)
+        cyc = typed[st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
+        lab_all = adata.obs[out_key].astype(str)
+        share = lab_all[lab_all != unknown].value_counts(normalize=True)
+        for k, g in cyc.groupby('obs_key'):
+            split = g.groupby('cell_type')['n_new'].sum()
+            split = split / split.sum()
+            print(f'    {k} cycling split: ' + ', '.join(f'{t} {v:.0%} (dataset {share.get(t, 0):.0%})'
+                                                       for t, v in split.sort_values(ascending=False).items()))
+    # A type assembled from many cluster keys, and many subclusterings overall: usually over-clustering.
+    # Cell-cycle rows are the allowed exception and are not counted.
+    non_cyc = typed[~st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
+    for ct, keys in non_cyc.groupby(['cell_type', 'obs_key'])['n_new'].sum().groupby(level=0):
+        keys = keys[keys > 0]
+        if len(keys) >= 3:
+            print(f'  NOTE "{ct}" is assembled from {len(keys)} cluster keys '
+                  f'({", ".join(f"{k} {int(n):,}" for (_, k), n in keys.items())}). Define a type by one cluster '
+                  '(or a few) at one resolution; add pieces only when each carries the type\'s own markers at '
+                  'comparable detection (report: cells by row).')
+    n_sub = len(set(typed['obs_key']) - set(numeric_keys))
+    if n_sub > 4:
+        print(f'  NOTE {n_sub} subclustering/imported keys are used. Subcluster only for a type confined to a subset '
+              'of a cluster or a cluster that clearly mixes two types (SKILL.md Step 8); prefer existing resolutions.')
 
 
 def set_colors(adata, key, colors, unknown):

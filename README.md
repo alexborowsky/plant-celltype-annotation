@@ -1,6 +1,6 @@
 # plant-celltype-annotation
 
-> **In development (v0.7.1, pre-release).** This skill is being tested and changes often. Feedback is
+> **In development (v0.8.0, pre-release).** This skill is being tested and changes often. Feedback is
 > very welcome: please open an issue with what you ran (species, tissue, cells
 > or nuclei), what worked, and where the annotation or the instructions went
 > wrong.
@@ -72,7 +72,7 @@ Clone a release into your Claude Code skills folder (see
 [Releases](https://github.com/alexborowsky/plant-celltype-annotation/releases) and `CHANGELOG.md`):
 
 ```bash
-git clone --branch v0.7.1 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
+git clone --branch v0.8.0 https://github.com/alexborowsky/plant-celltype-annotation ~/.claude/skills/plant-celltype-annotation
 ```
 
 Omit `--branch` to follow the latest development version on `main`. On claude.ai, upload the

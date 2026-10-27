@@ -688,8 +688,10 @@ cluster:
    often separate only at high resolution. Common types (mesophyll) are
    often split into state sub-clusters at high resolution, so label them at
    low resolution. Use `cluster_hierarchy.tsv` to choose the level.
-5. **Ambiguous or mixed.** If markers of two types are both present, or DE
-   is uninformative, subcluster it (Step 8) or leave it `Unknown`.
+5. **Ambiguous or mixed.** Check the cluster at the other resolutions
+   first. Subcluster it (Step 8) only if two types' markers are both clearly
+   enriched; if DE is just uninformative, leave it `Unknown` or label it at
+   low confidence.
 6. **Abundance and program.** Compare the cluster's share of cells with the
    type's expected abundance (`expected_cell_types.tsv`, or the published
    atlas for the organ). For example, where bundle sheath is expected to be
@@ -728,10 +730,10 @@ cluster:
    or senescence state can span several types (a stress response in both
    mesophyll and bundle-sheath cells). Keep the type and record the state
    in the annotation table's `State` column (`references/file_formats.md`).
-   When a state cluster mixes types, resolve the type per cell: subcluster
-   it (`--recompute-pca`), score type markers within it, or follow its
-   cells' parent clusters at a coarser resolution. Then write type rows for
-   the parts plus a state-only row for the whole cluster.
+   When a state cluster mixes types, resolve the type per cell: follow its
+   cells' parent clusters at a coarser resolution, or score type markers
+   within it (item 10); subcluster it only if those fail. Then write type
+   rows for the parts plus a state-only row for the whole cluster.
 10. **A state can hide its type's markers.** Defense, stress and cell-cycle
    programs often lower the identity genes, and the promoter reporters, of
    the type they sit in. "The type's marker is not enriched" in a state
@@ -763,8 +765,9 @@ Consult `references/plant_pitfalls.md` for the relevant tissue and lineage
 Then compare the calls with `expected_cell_types.tsv`:
 
 - **An expected type with no cluster** may be rare, lost in capture, or
-  merged into a neighbor. Look for it at a higher resolution, or by
-  subclustering, before calling it absent.
+  merged into a neighbor. Look for its markers at the existing higher
+  resolutions first; subcluster only the one cluster where its function
+  marker is concentrated (Step 8). Otherwise report it as not found.
 - **A call that isn't on the list** needs stronger evidence, or a reason
   why the list missed it.
 
@@ -800,19 +803,45 @@ including an `Evidence` column, and present it to the user as a compact
 table. Say which rows were adopted from the publication and which were
 derived here.
 
-### 8. Subcluster ambiguous clusters (`scripts/subcluster.py`), if needed
+### 8. Subcluster only when needed (`scripts/subcluster.py`)
 
-**Subclusters never fold back into the majority type.** The parent
-clustering separated these cells (a trichome or vascular cluster) from the
-majority (mesophyll). A subcluster that only looks like mesophyll (ambient
-photosynthesis RNA, no private program) keeps the parent's layer or lineage
-name (e.g. `Vasculature`, `Trichome`) or `Unknown`, not Mesophyll, unless its
-own markers clearly say so;
-`apply_annotations.py` warns when a subcluster row reuses a broad base label.
+**Subcluster sparingly.** Most clusters are labelled at the resolution that
+separates them. Subcluster only when:
+- an expected type's function marker sits in a clear subset of one cluster
+  (Step 7, item 4), or
+- a cluster clearly mixes two types whose markers are both enriched.
+
+First check whether an existing resolution already separates the cells
+(`cluster_hierarchy.tsv`). Do not subcluster to explore, to split a type
+into states, or to rescue every low-confidence cluster: a low-confidence
+label or `Unknown` is an acceptable answer. A handful of subclusterings is
+plenty for a whole atlas; use low subcluster resolutions (0.1–0.3) and
+label the subclusters at the coarsest level that separates the types.
+
+**Subclusters do not fold back into a type defined by another, larger
+cluster.** The parent clustering separated these cells from the cells that
+define that type. A subcluster that only resembles it (shared or ambient
+genes, no type markers at the defining cells' level) keeps the parent
+cluster's label, its lineage or layer name (`Vasculature`, `Trichome`), or
+`Unknown`. This holds for any type, not only the majority one.
+**Exception: cell-cycle clusters.** Dividing cells of several types gather
+in one S-phase or G2/M cluster, so its subclusters are expected to split
+among the types roughly as the dataset does (allowing for which types still
+divide). Assign them to types with the cell-cycle State when their type
+markers support it, and check the split against the dataset's composition.
+
+**Don't assemble a type from many pieces.** Define each type by one
+cluster, or a few, at one resolution. A type built from rows of three or
+more cluster keys (subclusters of several parents plus fallback rows)
+usually means over-clustering: keep a piece only when it carries the type's
+own markers at detection comparable to the defining cells (the report's
+"cells by annotation row"). `apply_annotations.py` warns about fold-back
+rows, notes types assembled from three or more keys, and notes when many
+subclusterings are used.
 
 ```bash
 python scripts/subcluster.py --h5ad data.h5ad --cluster-key leiden_res0.3 \
-    --clusters 6 --output-h5ad sub_cl6.h5ad --resolutions 0.1 0.3 0.5
+    --clusters 6 --output-h5ad sub_cl6.h5ad --resolutions 0.1 0.2 0.3
 ```
 
 Then run `cluster_evidence.py` on `sub_cl6.h5ad` with
