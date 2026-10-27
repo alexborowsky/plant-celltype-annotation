@@ -735,7 +735,15 @@ cluster:
    or senescence state can span several types (a stress response in both
    mesophyll and bundle-sheath cells). Keep the type and record the state
    in the annotation table's `State` column (`references/file_formats.md`).
-   **Type a state cluster in this order:**
+   **Type a state cluster in this order.** This applies only to clusters
+   whose distinguishing program is a state you tested (stress, defense,
+   treatment, cell cycle; usually skewed by treatment or sample). A cluster
+   whose distinguishing genes are a type's own functions (transporters,
+   identity TFs, wall or metabolic enzymes of that type) is a type
+   candidate even when coarser clusterings put its cells inside a larger
+   type's cluster: rare types sit inside bigger clusters at low resolution
+   and separate only at high resolution (item 4), so coarse membership is
+   not evidence against them.
    1. **Coarser resolution first.** Cross-tabulate the state cluster
       against the coarser clusterings. If its cells fall into different
       type clusters there (say 80% in a cortex cluster and 20% in an

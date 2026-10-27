@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.2] - 2026-10-27
+
+### Changed
+- The coarse-resolution typing of state clusters (0.9.1) applies only to clusters whose distinguishing program is a
+  tested state. A cluster whose distinguishing genes are a type's own functions stays a type candidate even when coarser
+  clusterings put it inside a larger type's cluster: rare types separate only at high resolution.
+
 ## [0.9.1] - 2026-10-27
 
 ### Changed
