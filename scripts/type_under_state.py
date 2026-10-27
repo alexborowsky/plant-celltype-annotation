@@ -22,6 +22,12 @@ Groups are written NAME=SPEC. SPEC is key:v1,v2 (an obs column and its values), 
   --control Other=sub_cl7:3
 Controls are scored like the query (useful to see what an intermediate score looks like).
 
+Verdict: the query is called type A only if it sits >= --call-at (default 0.7) toward A against every other
+candidate; otherwise it is "unresolved" (label it Unknown or by lineage, plus the state; not by its parent cluster).
+Give one candidate per lineage the cells could belong to: a two-candidate score cannot detect a third type (a leaf
+defense subset scored 0.85 toward bundle sheath against mesophyll alone, and 0.5 between bundle sheath and pavement
+once pavement was a candidate).
+
 Caveats (print them with the result): candidates defined by the same marker you are testing make the comparison
 partly circular, and a shared regional program (cells of one island) can score like the candidate it was learnt from.
 Report the score as one line of evidence next to markers, reporters and UMAP position.
@@ -106,6 +112,8 @@ def main():
     p.add_argument('--gene-map', default=None, help='map_markers gene map, to name genes (rank-1 ref_symbol)')
     p.add_argument('--depth-key', default='total_counts')
     p.add_argument('--n-genes', type=int, default=100)
+    p.add_argument('--call-at', type=float, default=0.7,
+                   help='verdict: call type A when the query median is >= this toward A against every other candidate')
     p.add_argument('--state-delta', type=float, default=0.15,
                    help='a gene is a state gene if its detection in the query differs from every candidate by more '
                         'than this (induced) or is below all candidates by more than this (repressed)')
@@ -118,6 +126,9 @@ def main():
     a = p.parse_args()
     if len(a.candidate) < 2:
         sys.exit('give at least two --candidate groups')
+    if len(a.candidate) == 2:
+        print('WARN only two candidates: a two-candidate score cannot detect a third type. Give one candidate per '
+              'lineage the cells could belong to (e.g. epidermis, mesophyll, bundle sheath, vascular).')
     rng = np.random.default_rng(a.seed)
 
     adata = sc.read_h5ad(a.h5ad)
@@ -183,6 +194,7 @@ def main():
     name = lambda i: f"{var_names[i]}" + (f" ({sym[var_names[i]]})" if sym.get(var_names[i]) else '')
 
     rows, gene_rows = [], []
+    toward = {c: [] for c in cands}  # per candidate: query median toward it, one per pair
     allidx = {n: np.flatnonzero(gm[n]) for n in order}
     for A, B in itertools.combinations(cands, 2):
         fa, fb = st[A][0], st[B][0]
@@ -209,6 +221,9 @@ def main():
                              if n in cands else 'control', n=len(z), q25=round(q1, 2), median=round(q2, 2),
                              q75=round(q3, 2)))
             print(f'  {n:24s} median {q2:5.2f}  (IQR {q1:.2f} to {q3:.2f})')
+            if n == qname:
+                toward[A].append(q2)
+                toward[B].append(1 - q2)
         cols = np.r_[a_up, b_up]
         P = pd.DataFrame({n: st[n][1][cols] for n in order})
         cor = P.corr().loc[qname, cands]
@@ -222,6 +237,13 @@ def main():
             gene_rows.append(dict(pair=f'{A}_vs_{B}', side=B, gene=var_names[i], symbol=sym.get(var_names[i], ''),
                                   **{f'frac_{n}': round(st[n][0][i], 3) for n in order}))
 
+    tested = {c: v for c, v in toward.items() if v}
+    called = [c for c, v in tested.items() if len(v) == len(cands) - 1 and min(v) >= a.call_at]
+    print(f'\nVERDICT for {qname}: ' + (f'{called[0]} (>= {a.call_at} toward it against every other candidate)'
+                                       if len(called) == 1 else
+                                       'unresolved: no candidate wins every pair (label Unknown or by lineage + the '
+                                       'state, not by the parent cluster)'))
+    print('  lowest score toward each candidate: ' + ', '.join(f'{c} {min(v):.2f}' for c, v in tested.items()))
     top_state = np.argsort(-(fq - fc.max(0)))[:12]
     print(f'\n{qname} state program (left out), top induced: '
           + ', '.join(f'{name(i)} {fq[i]:.0%} vs <={fc.max(0)[i]:.0%}' for i in top_state if induced[i]))

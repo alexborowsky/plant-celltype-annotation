@@ -95,10 +95,11 @@
   Mesophyll, first after a SAG12-only test and then as "Mesophyll +
   unexplained state". It should stay `Unknown_<program>`.
 - **States suppress identity markers.** Defense and stress programs lower
-  the identity genes and promoter reporters of the cells they sit in. A
-  defense subset whose cell-type reporter fell to background still matched
-  that type on the genes the state left alone. Use
-  `scripts/type_under_state.py` before calling a state cluster `Unknown`.
+  the identity genes and promoter reporters of the cells they sit in, so a
+  missing marker is not evidence for another type, and the parent cluster
+  is not evidence for the type either. Use `scripts/type_under_state.py`
+  with one candidate per lineage the cells could belong to before typing a
+  state cluster or calling it `Unknown`.
 - **Shape on the UMAP is evidence.** Arms and projections leaving a type's
   main body mark continuous programs (ageing, development, stress) to name
   and test, not noise.

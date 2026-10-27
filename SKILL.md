@@ -700,7 +700,12 @@ cluster:
    In a C3 leaf, a vascular-associated cluster that also carries a
    photosynthetic program (RBCS, LHCB, CA at mesophyll-like levels, beyond
    ambient) points to bundle sheath; xylem and phloem parenchyma are not
-   photosynthetic. In C4 grasses, the bundle sheath carries the Kranz
+   photosynthetic. **Judge "beyond ambient" against the dataset's own
+   non-photosynthetic types** (companion cells, phloem parenchyma, xylem,
+   pavement): in whole-cell leaf data, photosynthesis transcripts can be in
+   90%+ of those cells too. If the cluster's level matches theirs, it is
+   ambient and says nothing about bundle sheath; it must not override a
+   coherent program of another type. In C4 grasses, the bundle sheath carries the Kranz
    program instead (see the pitfalls).
 7. **A cluster with its own program is not the majority type.** If a
    cluster has private DE genes (in ≥ 50% of its cells vs ≤ 5% elsewhere),
@@ -747,10 +752,17 @@ cluster:
    ```
    It learns each candidate pair's own genes at matched depth, leaves out
    genes the query induces or represses, and places the query on a 0–1 scale
-   (median candidate B = 0, A = 1). In a leaf test, defense-state cells
-   whose cell-type reporter had fallen to background still placed near that
-   type and kept its own genes: the type + the state at low confidence, not
-   `Unknown`. Two limits, stated with the call:
+   (median candidate B = 0, A = 1). **Give one candidate per lineage the
+   cells could belong to** (epidermis, mesophyll, bundle sheath, vascular):
+   a two-candidate score cannot detect a third type. In a leaf test, a
+   defense subset scored 0.85 toward bundle sheath against mesophyll alone,
+   but sat midway (0.5) between bundle sheath and pavement once pavement was
+   a candidate. The script's verdict names a type only when the query sits
+   ≥ 0.7 toward it against every other candidate. Otherwise the type is
+   unresolved: label the cells `Unknown` (or by lineage when that is clear)
+   plus the state. **Do not type a state cluster by its parent cluster**: a
+   strong state program decides where its cells cluster. Two limits, stated
+   with the call:
    - candidates defined by the marker under test make the score partly
      circular;
    - cells of one island share a regional program, so a control group from
@@ -781,8 +793,21 @@ in grasses); in the vasculature Xylem, Xylem_Parenchyma, Phloem_Companion,
 Sieve_Element, Phloem_Parenchyma, Procambium, Bundle_Sheath. Layer names
 (`Epidermis`, `Vasculature`) are valid **only when the identity within the
 layer is ambiguous**: say why in the Evidence column (which types were tested
-and why none fits). `apply_annotations.py` prints a reminder when a layer
-name is used.
+and why none fits). They are a last resort: **if the evidence favours one
+type** (a coherent program of that type's characterized functions, such as
+amino-acid, sulfate and boron transporters for xylem parenchyma), **call that
+type at low confidence** and name the alternative in Evidence, rather than
+falling back to the layer. `apply_annotations.py` prints a reminder when a
+layer name is used.
+
+**Keep positional sub-identities that the clusters already separate.**
+Adaxial vs abaxial epidermis (`Adaxial_Pavement`, `Abaxial_Pavement`),
+palisade vs spongy mesophyll, or vein classes are worth labelling when an
+existing resolution separates them and polarity or position markers are
+enriched (HD-ZIP III/AS2 adaxial; FIL/YAB, KAN abaxial; cuticle or wax
+differences). Use the existing finer-resolution rows; this needs no new
+subclustering and is not over-clustering. Fall back to the parent type
+(`Pavement`) for cells the split does not cover.
 
 **Label conventions** for calls that are not a clean type:
 - `<Type>_like` with `low` confidence: lineage-consistent but no specific
@@ -816,7 +841,9 @@ First check whether an existing resolution already separates the cells
 into states, or to rescue every low-confidence cluster: a low-confidence
 label or `Unknown` is an acceptable answer. A handful of subclusterings is
 plenty for a whole atlas; use low subcluster resolutions (0.1–0.3) and
-label the subclusters at the coarsest level that separates the types.
+label the subclusters at the coarsest level that separates the types
+(positional sub-identities such as adaxial/abaxial are the exception: see
+"Keep positional sub-identities" above).
 
 **Subclusters do not fold back into a type defined by another, larger
 cluster.** The parent clustering separated these cells from the cells that

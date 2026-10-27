@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.0] - 2026-10-27
+
+From a blinded leaf-atlas run on 0.8.0: a xylem-parenchyma program was left as `Vasculature`, a defense-state
+population was typed by its parent cluster, and the adaxial/abaxial pavement split was dropped.
+
+### Changed
+- **`type_under_state.py` needs one candidate per lineage.** A two-candidate score cannot detect a third type: a leaf
+  defense subset scored 0.85 toward bundle sheath against mesophyll alone, and 0.5 between bundle sheath and pavement
+  once pavement was a candidate. The script warns with two candidates and prints a verdict: a type only when the
+  query sits >= 0.7 (`--call-at`) toward it against every other candidate, otherwise "unresolved".
+- **A state cluster is not typed by its parent cluster** (SKILL.md Step 7 item 10, pitfalls).
+- **"Photosynthetic beyond ambient" is judged against the dataset's own non-photosynthetic types** (companion cells,
+  phloem parenchyma, xylem, pavement), not in absolute terms; it no longer overrides a coherent program of another
+  type.
+- **Layer names are a last resort:** when the evidence favours one type, call it at low confidence and name the
+  alternative.
+- **Positional sub-identities** (adaxial/abaxial pavement, palisade/spongy, vein classes) are labelled when an
+  existing resolution separates them with markers; this is not over-clustering.
+
 ## [0.8.0] - 2026-10-27
 
 A blinded leaf-atlas run assembled types from many subclusters and fallback rows (52 rows, 6 subclusterings).
