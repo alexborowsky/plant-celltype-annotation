@@ -96,10 +96,11 @@
   unexplained state". It should stay `Unknown_<program>`.
 - **States suppress identity markers.** Defense and stress programs lower
   the identity genes and promoter reporters of the cells they sit in, so a
-  missing marker is not evidence for another type, and the parent cluster
-  is not evidence for the type either. Use `scripts/type_under_state.py`
-  with one candidate per lineage the cells could belong to before typing a
-  state cluster or calling it `Unknown`.
+  missing marker is not evidence for another type. A response shared by
+  several types often forms one state cluster at fine resolution while
+  coarser clusterings keep its cells in their own type clusters: type each
+  part by its coarse cluster (SKILL.md Step 7, item 9) before scoring it
+  with `scripts/type_under_state.py` (one candidate per lineage).
 - **Shape on the UMAP is evidence.** Arms and projections leaving a type's
   main body mark continuous programs (ageing, development, stress) to name
   and test, not noise.

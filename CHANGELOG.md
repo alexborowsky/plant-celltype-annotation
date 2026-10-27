@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.1] - 2026-10-27
+
+### Changed
+- **State clusters are typed from coarser resolutions first.** A response shared by several types often forms one
+  state cluster at fine resolution while coarser clusterings keep its cells in their own type clusters. Each part then
+  takes the type of its coarse cluster (with a check that it keeps some of that type's genes), the state covers them
+  all, and the state cluster gets a state-only row. A single coarse parent counts only when it is mostly that type
+  without the state. `type_under_state.py` comes after this check; a midway score points to the coarse split.
+
 ## [0.9.0] - 2026-10-27
 
 From a blinded leaf-atlas run on 0.8.0: a xylem-parenchyma program was left as `Vasculature`, a defense-state

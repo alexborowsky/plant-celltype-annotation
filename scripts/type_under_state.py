@@ -22,8 +22,10 @@ Groups are written NAME=SPEC. SPEC is key:v1,v2 (an obs column and its values), 
   --control Other=sub_cl7:3
 Controls are scored like the query (useful to see what an intermediate score looks like).
 
+First check the query against coarser clusterings (SKILL.md Step 7 item 9): a state cluster whose cells sit in
+different type clusters at a coarser resolution is one response shared by those types, and scores midway here.
 Verdict: the query is called type A only if it sits >= --call-at (default 0.7) toward A against every other
-candidate; otherwise it is "unresolved" (label it Unknown or by lineage, plus the state; not by its parent cluster).
+candidate; otherwise it is "unresolved" (check the coarse split; else label it Unknown or by lineage, plus the state).
 Give one candidate per lineage the cells could belong to: a two-candidate score cannot detect a third type (a leaf
 defense subset scored 0.85 toward bundle sheath against mesophyll alone, and 0.5 between bundle sheath and pavement
 once pavement was a candidate).
@@ -241,8 +243,9 @@ def main():
     called = [c for c, v in tested.items() if len(v) == len(cands) - 1 and min(v) >= a.call_at]
     print(f'\nVERDICT for {qname}: ' + (f'{called[0]} (>= {a.call_at} toward it against every other candidate)'
                                        if len(called) == 1 else
-                                       'unresolved: no candidate wins every pair (label Unknown or by lineage + the '
-                                       'state, not by the parent cluster)'))
+                                       'unresolved: no candidate wins every pair. If the query\'s cells sit in '
+                                       'different type clusters at a coarser resolution, type each part by its coarse '
+                                       'cluster; otherwise label Unknown or by lineage + the state'))
     print('  lowest score toward each candidate: ' + ', '.join(f'{c} {min(v):.2f}' for c, v in tested.items()))
     top_state = np.argsort(-(fq - fc.max(0)))[:12]
     print(f'\n{qname} state program (left out), top induced: '

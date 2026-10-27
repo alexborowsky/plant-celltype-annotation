@@ -735,10 +735,22 @@ cluster:
    or senescence state can span several types (a stress response in both
    mesophyll and bundle-sheath cells). Keep the type and record the state
    in the annotation table's `State` column (`references/file_formats.md`).
-   When a state cluster mixes types, resolve the type per cell: follow its
-   cells' parent clusters at a coarser resolution, or score type markers
-   within it (item 10); subcluster it only if those fail. Then write type
-   rows for the parts plus a state-only row for the whole cluster.
+   **Type a state cluster in this order:**
+   1. **Coarser resolution first.** Cross-tabulate the state cluster
+      against the coarser clusterings. If its cells fall into different
+      type clusters there (say 80% in a cortex cluster and 20% in an
+      endodermis cluster), it is one response shared by several types: each
+      part takes the type of its coarse cluster, and the state covers them
+      all. Check that each part keeps some of its own type's genes compared
+      with the other part (they are weakened, not absent). Write a
+      state-only row for the state cluster and let the coarse type rows
+      label the cells; give the state cluster no type row of its own.
+   2. **Within one coarse cluster.** If all its cells sit in one coarse
+      cluster, that cluster's type holds only when the coarse cluster is
+      mostly that type *without* the state (the state did not form it).
+   3. **Otherwise** (the state forms its own cluster at every resolution),
+      score type genes the state leaves alone (item 10). Subcluster only if
+      that fails.
 10. **A state can hide its type's markers.** Defense, stress and cell-cycle
    programs often lower the identity genes, and the promoter reporters, of
    the type they sit in. "The type's marker is not enriched" in a state
@@ -760,9 +772,10 @@ cluster:
    a candidate. The script's verdict names a type only when the query sits
    ≥ 0.7 toward it against every other candidate. Otherwise the type is
    unresolved: label the cells `Unknown` (or by lineage when that is clear)
-   plus the state. **Do not type a state cluster by its parent cluster**: a
-   strong state program decides where its cells cluster. Two limits, stated
-   with the call:
+   plus the state. Use it after the coarse-resolution check (item 9): a
+   state cluster that mixes types scores midway between them, which says
+   "check the coarse split", not "unresolved". Two limits, stated with the
+   call:
    - candidates defined by the marker under test make the score partly
      circular;
    - cells of one island share a regional program, so a control group from
