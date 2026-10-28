@@ -30,6 +30,14 @@ Give one candidate per lineage the cells could belong to: a two-candidate score 
 defense subset scored 0.85 toward bundle sheath against mesophyll alone, and 0.5 between bundle sheath and pavement
 once pavement was a candidate).
 
+Per-cell mode (--per-cell): for a state cluster known to mix types with no coarse split to follow. Not for
+cell-cycle clusters, which stay Unknown + State unless clearly subdivided (SKILL.md Step 8). Each query cell (all of
+them, not only the depth band) is placed on every pair's
+scale and assigned to the candidate it is >= 0.5 toward against every other candidate (else "unresolved"). The split is
+printed next to the candidates' shares of cells; --assignments writes barcode -> type for apply_annotations.py
+--import-labels <file>:assigned_type:<key>. A cycling cluster that goes almost entirely to one minor type is suspect:
+dividing cells look young and provascular whatever their type.
+
 Caveats (print them with the result): candidates defined by the same marker you are testing make the comparison
 partly circular, and a shared regional program (cells of one island) can score like the candidate it was learnt from.
 Report the score as one line of evidence next to markers, reporters and UMAP position.
@@ -119,12 +127,17 @@ def main():
     p.add_argument('--state-delta', type=float, default=0.15,
                    help='a gene is a state gene if its detection in the query differs from every candidate by more '
                         'than this (induced) or is below all candidates by more than this (repressed)')
+    p.add_argument('--state-ref', choices=['median', 'max'], default='median',
+                   help='state genes differ from the median candidate (default) or from every candidate (max)')
     p.add_argument('--max-cells', type=int, default=15000, help='cells sampled per group')
     p.add_argument('--min-cells', type=int, default=100, help='cells per group required in the depth band')
     p.add_argument('--layer', default=None)
     p.add_argument('--use-raw', choices=['auto', 'yes', 'no'], default='auto')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out', default=None, help='output prefix (writes <out>_scores.tsv, <out>_genes.tsv)')
+    p.add_argument('--per-cell', action='store_true',
+                   help='assign each query cell to a candidate (cell-cycle clusters: dividing cells of several types)')
+    p.add_argument('--assignments', default=None, help='with --per-cell: write barcode -> assigned_type TSV here')
     a = p.parse_args()
     if len(a.candidate) < 2:
         sys.exit('give at least two --candidate groups')
@@ -152,6 +165,8 @@ def main():
         groups[n] = group_mask(obs, t)
         ctrls.append(n)
     order = [qname] + cands + ctrls
+    full_n = {n: int(groups[n].sum()) for n in order}
+    q_all = np.flatnonzero(groups[qname])  # per-cell mode scores every query cell
     for n in order:
         idx = np.flatnonzero(groups[n])
         if len(idx) == 0:
@@ -182,10 +197,15 @@ def main():
     # State genes: query detection differs from every candidate by > state_delta in the same direction
     fq = st[qname][0]
     fc = np.vstack([st[c][0] for c in cands])
-    induced = (fq - fc.max(0)) > a.state_delta
-    repressed = (fc.min(0) - fq) > a.state_delta
+    # A gene belongs to the state when the query differs from the typical (median) candidate. Comparing with every
+    # candidate (max) keeps state genes that one candidate shares (a candidate with some dividing cells keeps the
+    # S-phase genes as "type genes" and attracts every dividing cell).
+    ref_hi = np.median(fc, 0) if a.state_ref == 'median' else fc.max(0)
+    ref_lo = np.median(fc, 0) if a.state_ref == 'median' else fc.min(0)
+    induced = (fq - ref_hi) > a.state_delta
+    repressed = (ref_lo - fq) > a.state_delta
     state = induced | repressed
-    print(f'state genes left out: {induced.sum()} induced, {repressed.sum()} repressed in {qname} vs all candidates')
+    print(f'state genes left out: {induced.sum()} induced, {repressed.sum()} repressed in {qname} vs the {a.state_ref} candidate')
 
     sym = {}
     if a.gene_map:
@@ -197,6 +217,8 @@ def main():
 
     rows, gene_rows = [], []
     toward = {c: [] for c in cands}  # per candidate: query median toward it, one per pair
+    wins = {c: np.zeros(len(q_all), int) for c in cands}  # per-cell pairwise wins
+    margin = {c: np.full(len(q_all), np.inf) for c in cands}  # per cell: weakest score toward c over its pairs
     allidx = {n: np.flatnonzero(gm[n]) for n in order}
     for A, B in itertools.combinations(cands, 2):
         fa, fb = st[A][0], st[B][0]
@@ -226,6 +248,12 @@ def main():
             if n == qname:
                 toward[A].append(q2)
                 toward[B].append(1 - q2)
+        if a.per_cell:
+            zq = (row_mean(X, q_all, a_up) - row_mean(X, q_all, b_up) - m0) / (m1 - m0)
+            wins[A] += zq >= 0.5
+            wins[B] += zq < 0.5
+            margin[A] = np.minimum(margin[A], zq)
+            margin[B] = np.minimum(margin[B], 1 - zq)
         cols = np.r_[a_up, b_up]
         P = pd.DataFrame({n: st[n][1][cols] for n in order})
         cor = P.corr().loc[qname, cands]
@@ -239,6 +267,31 @@ def main():
             gene_rows.append(dict(pair=f'{A}_vs_{B}', side=B, gene=var_names[i], symbol=sym.get(var_names[i], ''),
                                   **{f'frac_{n}': round(st[n][0][i], 3) for n in order}))
 
+    if a.per_cell:
+        need = len(cands) - 1
+        assigned = np.array(['unresolved'] * len(q_all), dtype=object)
+        best = np.full(len(q_all), -np.inf)
+        for c in cands:
+            ok = (wins[c] == need) & (margin[c] > best)
+            assigned[ok] = c
+            best[ok] = margin[c][ok]
+        split = pd.Series(assigned).value_counts()
+        tot_c = sum(full_n[c] for c in cands)
+        print(f'\nPER-CELL split of {qname} ({len(q_all):,} cells) vs the candidates\' shares of cells:')
+        for c in cands + ['unresolved']:
+            n = int(split.get(c, 0))
+            ref = f'{full_n[c] / tot_c:.0%}' if c in full_n else '-'
+            print(f'  {c:24s} {n:>7,} ({n / len(q_all):.0%})   candidates share {ref}')
+        top = split.drop('unresolved', errors='ignore')
+        if len(top) and top.iloc[0] / len(q_all) > 0.8 and full_n[top.index[0]] / tot_c < 0.4:
+            print(f'  WARN {top.index[0]} takes {top.iloc[0] / len(q_all):.0%} of the query but is '
+                  f'{full_n[top.index[0]] / tot_c:.0%} of the candidates: dividing cells look young/provascular; check '
+                  'the candidates (add the majority types) before using this split.')
+        if a.assignments:
+            os.makedirs(os.path.dirname(os.path.abspath(a.assignments)), exist_ok=True)
+            pd.DataFrame({'barcode': obs.index[q_all], 'assigned_type': assigned,
+                          'margin': np.round(best, 3)}).to_csv(a.assignments, sep='\t', index=False)
+            print(f'Wrote {a.assignments}')
     tested = {c: v for c, v in toward.items() if v}
     called = [c for c, v in tested.items() if len(v) == len(cands) - 1 and min(v) >= a.call_at]
     print(f'\nVERDICT for {qname}: ' + (f'{called[0]} (>= {a.call_at} toward it against every other candidate)'
@@ -247,7 +300,7 @@ def main():
                                        'different type clusters at a coarser resolution, type each part by its coarse '
                                        'cluster; otherwise label Unknown or by lineage + the state'))
     print('  lowest score toward each candidate: ' + ', '.join(f'{c} {min(v):.2f}' for c, v in tested.items()))
-    top_state = np.argsort(-(fq - fc.max(0)))[:12]
+    top_state = np.argsort(-(fq - ref_hi))[:12]
     print(f'\n{qname} state program (left out), top induced: '
           + ', '.join(f'{name(i)} {fq[i]:.0%} vs <={fc.max(0)[i]:.0%}' for i in top_state if induced[i]))
 

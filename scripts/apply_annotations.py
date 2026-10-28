@@ -409,7 +409,8 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
               f'their own markers (not shared or ambient RNA) match {ct} as well as its defining cells do, keep the '
               f"parent cluster's label, its lineage/layer name, or Unknown.")
     if cycling_rows:
-        print('  NOTE cell-cycle subclusters assigned to types defined elsewhere (allowed): '
+        print('  NOTE cell-cycle subclusters assigned to types defined elsewhere (allowed only on that type\'s '
+              'own markers): '
               + '; '.join(f'line {r.line} {r.obs_key}={r.cluster} -> {r.cell_type} ({int(r.n_new):,})'
                           for r, _ in cycling_rows))
         # their split should roughly follow the types' shares in the dataset (allowing for which types still divide)
@@ -421,6 +422,15 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
             split = split / split.sum()
             print(f'    {k} cycling split: ' + ', '.join(f'{t} {v:.0%} (dataset {share.get(t, 0):.0%})'
                                                        for t, v in split.sort_values(ascending=False).items()))
+    # A cell-cycle cluster given one type as a whole (dividing cells of several types gather in one cluster)
+    cyc_all = typed[st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
+    for (k, cl), g in cyc_all.groupby(['obs_key', 'cluster']):
+        if g['cell_type'].nunique() == 1 and int(g['n_new'].sum()) >= 200 \
+                and not str(g['cell_type'].iloc[0]).lower().startswith('unknown'):
+            print(f'  WARN cell-cycle cluster {k}={cl} ({int(g["n_new"].sum()):,} cells) is labelled '
+                  f'{g["cell_type"].iloc[0]} as a whole. A predominantly S-phase/G2M cluster is CellType Unknown + '
+                  'the cell-cycle State, unless it is a clear subdivision of that type (sits with its cells at a '
+                  'coarser resolution and carries its markers); say which in Evidence (SKILL.md Step 8).')
     # A type assembled from many cluster keys, and many subclusterings overall: usually over-clustering.
     # Cell-cycle rows are the allowed exception and are not counted.
     non_cyc = typed[~st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]

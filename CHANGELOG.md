@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.3] - 2026-10-27
+
+From a blinded leaf-atlas run on 0.9.2: whole cell-cycle clusters were typed as vasculature, the reporter-defined
+bundle sheath was relabelled mesophyll (reporter dismissed as transformation efficiency, sparse TFs absent, "too many
+cells"), and the neighbouring xylem-parenchyma program then became "bundle sheath".
+
+### Changed
+- **Cell-cycle clusters are state only, unless clearly subdivided.** A predominantly S-phase or G2/M cluster gets
+  CellType `Unknown` + the cell-cycle State; never type it by scoring the whole cluster (dividing cells look young and
+  provascular). Cycling cells take a type only where they form a clear subdivision of it (sit with its cells at a
+  coarser resolution and carry its markers). `apply_annotations.py` warns when a cycling cluster gets one type as a
+  whole.
+- **Reporters:** control a promoter reporter for transformation (co-delivered transgenes, depth, sample), then trust the
+  enrichment that survives; sparse TFs (<= 1-5% of cells) do not veto it; a call should agree with its designed
+  reporter (pitfalls).
+- **Abundance is weak evidence:** never reject a reporter- and program-supported type because its cluster seems too
+  large or small.
+
+### Added
+- `type_under_state.py --per-cell` (and `--assignments`): assigns each query cell to a candidate, for state clusters
+  known to mix types with no coarse split to follow. `--state-ref` (default `median`): state genes are those that
+  differ from the median candidate, so a candidate that shares part of the state no longer attracts the query.
+
 ## [0.9.2] - 2026-10-27
 
 ### Changed

@@ -120,6 +120,21 @@
 - Agro-delivered constructs are expressed only in transformed cells from
   treated samples. Their absence in mock is expected and does not argue
   against the cell-type call.
+- **Control a promoter reporter for transformation, then trust it.** Cells
+  differ in how many constructs they took up. Compare the reporter's
+  detection at matched depth among cells that express the co-delivered
+  constitutive transgenes, or model it with those transgenes, depth and
+  sample as covariates. Enrichment that survives is identity evidence for
+  the promoter's cell type. A saturated co-delivered transgene in the same
+  cells is something to adjust for, not a reason to dismiss the reporter.
+- **Sparse TFs do not veto a reporter.** Identity TFs such as SCR/SCL23 at
+  ≤ 1-5% of cells are unmeasurable, not negative. They cannot outweigh an
+  adjusted reporter enrichment.
+- **A designed reporter and a call should agree.** Calling a cluster the
+  reporter's type where the adjusted reporter is *not* enriched contradicts
+  the experiment: prefer the type its own program supports (e.g. a
+  transporter program next to the reporter-positive cluster is a
+  neighbouring vascular type), and say so.
 
 ## Lineage- and tissue-specific differences
 - **C4 grasses (sorghum, maize, *Setaria*):** Kranz anatomy inverts the

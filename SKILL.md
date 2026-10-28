@@ -63,7 +63,9 @@ as a label.
    stress/defense, circadian, and treatment responses can form clusters.
    Record the state in the annotation table's `State` column and keep the
    underlying cell type in `CellType` (Step 7, item 9); use a state as the
-   label only when the type truly cannot be resolved. A state names a process
+   label only when the type truly cannot be resolved (predominantly
+   S-phase or G2/M clusters: CellType `Unknown` + the cell-cycle State,
+   Step 8). A state names a process
    you tested and found (cell-cycle genes, a stress or senescence panel,
    treatment composition). **A private program you cannot explain is not a
    state:** the cluster is `Unknown_<program>`, not `<MajorityType>` + state.
@@ -696,7 +698,10 @@ cluster:
    type's expected abundance (`expected_cell_types.tsv`, or the published
    atlas for the organ). For example, where bundle sheath is expected to be
    several-fold more abundant than xylem parenchyma, a cluster holding 10% of
-   the cells is unlikely to be xylem parenchyma. Also use the cluster's broad program.
+   the cells is unlikely to be xylem parenchyma. Abundance is weak evidence: capture and
+   dissociation shift shares several-fold, so never reject a type that its
+   reporter and its own program support only because the cluster seems too
+   large or too small. Also use the cluster's broad program.
    In a C3 leaf, a vascular-associated cluster that also carries a
    photosynthetic program (RBCS, LHCB, CA at mesophyll-like levels, beyond
    ambient) points to bundle sheath; xylem and phloem parenchyma are not
@@ -758,7 +763,9 @@ cluster:
       mostly that type *without* the state (the state did not form it).
    3. **Otherwise** (the state forms its own cluster at every resolution),
       score type genes the state leaves alone (item 10). Subcluster only if
-      that fails.
+      that fails. Cell-cycle clusters are the exception: they stay
+      `Unknown` + State unless clearly subdivided (Step 8, "Cell-cycle
+      clusters").
 10. **A state can hide its type's markers.** Defense, stress and cell-cycle
    programs often lower the identity genes, and the promoter reporters, of
    the type they sit in. "The type's marker is not enriched" in a state
@@ -872,11 +879,20 @@ define that type. A subcluster that only resembles it (shared or ambient
 genes, no type markers at the defining cells' level) keeps the parent
 cluster's label, its lineage or layer name (`Vasculature`, `Trichome`), or
 `Unknown`. This holds for any type, not only the majority one.
-**Exception: cell-cycle clusters.** Dividing cells of several types gather
-in one S-phase or G2/M cluster, so its subclusters are expected to split
-among the types roughly as the dataset does (allowing for which types still
-divide). Assign them to types with the cell-cycle State when their type
-markers support it, and check the split against the dataset's composition.
+**Cell-cycle clusters: state only, unless clearly subdivided.** A cluster
+made predominantly of S-phase or G2/M cells (replication histones, PCNA,
+RNR; or cyclin B, KNOLLE, CDKB) gets CellType `Unknown` with the
+cell-cycle State (`S_Phase`, `G2M`). Do not type it by scoring the cluster
+as a whole: dividing cells look young and provascular whatever their type,
+so such scores drift to procambium or vasculature. Assign a type only where
+the cycling cells form a **clear subdivision of a type**: a cycling
+cluster or subcluster that sits with that type's cells (on the UMAP and at
+a coarser resolution) and carries its markers, such as S-phase and G2/M
+cells inside an epidermal island that express the protodermal genes. Those
+cells take that type plus the State; the rest of the cycling cells stay
+`Unknown` + State. A cycling cluster is the one place where subclusters may
+take a type defined by a larger cluster elsewhere (the fold-back rule
+above), and only on that type's own markers.
 
 **Don't assemble a type from many pieces.** Define each type by one
 cluster, or a few, at one resolution. A type built from rows of three or
