@@ -758,9 +758,15 @@ cluster:
       with the other part (they are weakened, not absent). Write a
       state-only row for the state cluster and let the coarse type rows
       label the cells; give the state cluster no type row of its own.
-   2. **Within one coarse cluster.** If all its cells sit in one coarse
-      cluster, that cluster's type holds only when the coarse cluster is
-      mostly that type *without* the state (the state did not form it).
+   2. **Within one coarse cluster.** If its cells sit in one coarse
+      cluster, that cluster's type holds when the coarse cluster is mostly
+      that type *without* the state (the state did not form it). A coarse
+      cluster made of one main type plus a minor neighbouring type still
+      counts as the main type.
+
+      Steps 1 and 2 take precedence over `type_under_state.py`. An unresolved
+      or weak score does not override them, because the state suppresses
+      its type's genes; weaker markers are expected.
    3. **Otherwise** (the state forms its own cluster at every resolution),
       score type genes the state leaves alone (item 10). Subcluster only if
       that fails. Cell-cycle clusters are the exception: they stay
@@ -825,8 +831,13 @@ and why none fits). They are a last resort: **if the evidence favours one
 type** (a coherent program of that type's characterized functions, such as
 amino-acid, sulfate and boron transporters for xylem parenchyma), **call that
 type at low confidence** and name the alternative in Evidence, rather than
-falling back to the layer. `apply_annotations.py` prints a reminder when a
-layer name is used.
+falling back to the layer. A layer name also needs evidence that the cells
+belong to the layer: genes shared by the layer's types, enriched over the
+other layers, with only the type within it unresolved. A transitional or
+bridge population between lineages is `Unknown_<program>`, not a layer
+name: for example, cells on a gradient from mesophyll toward phloem that
+carry part of one phloem type's program. `apply_annotations.py` prints a
+reminder when a layer name is used.
 
 **Keep positional sub-identities that the clusters already separate.**
 Adaxial vs abaxial epidermis (`Adaxial_Pavement`, `Abaxial_Pavement`),
@@ -1020,6 +1031,20 @@ python scripts/apply_annotations.py --h5ad data.h5ad --annotations CellTypeAnnot
   cells. A shadowed row is harmless when it is a deliberate coarse fallback
   whose cells were all labelled at finer resolution. Otherwise it signals a
   wrong row order or a wrong cluster ID.
+- **A fine cluster can straddle coarse clusters of different types.** For
+  example, a res1.5 cluster may sit mostly in the vascular cluster at res0.3
+  and partly in the mesophyll cluster. The coarse boundary usually holds:
+  restrict the row to the matching coarse clusters with the `Within` column
+  (`references/file_formats.md`). The cells outside then keep the label of
+  their own coarse cluster, unless they carry the type's own markers at
+  detection comparable to its core cells. Ambient photosynthesis
+  transcripts do not count: in leaves they are in most cells of every type.
+  This applies in both directions:
+  - a vascular-type row reaching into the mesophyll body;
+  - a mesophyll row claiming cells of the vascular cluster.
+
+  `apply_annotations.py` warns when a row straddles coarse clusters of other
+  types and suggests the `Within` value.
 - **A coarse fallback row for a type you defined by subclusters adds the
   cells the subclustering left out**, and those are often the edge of a
   neighbouring type. Example: subclusters of the vascular cluster defined

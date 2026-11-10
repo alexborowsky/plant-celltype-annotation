@@ -59,6 +59,19 @@ sub_cl2	1	Phloem_Parenchyma		medium	SWEET11 60% vs 5%
   levels to `<report>_confidence.tsv`.
 
 
+Optional `Within` column (detected by its header): restricts a row to cells
+inside other clusters, written `key:v1,v2` and joined with `&` for several
+keys (`key` is a Resolution value or an obs column). Use it when a fine
+cluster straddles coarse clusters of different types:
+
+```
+Resolution	Cluster	CellType	State	Confidence	Within	Evidence
+1.5	8	Phloem_Parenchyma		high	0.3:2	SWEET11 60% vs 5%; the part inside the vascular cluster (res0.3 cl2)
+1.5	4	Mesophyll		medium	0.3:0	the part of cl4 inside the mesophyll body
+```
+
+`obs['cell_type_source']` records the restriction (`1.5:8@0.3:2`).
+
 - `Resolution` is either a number (read as `leiden_res<number>`) or any
   `adata.obs` column name, including labels imported with `--import-labels`.
 - `Cluster` is compared as a string against that column. A comma list

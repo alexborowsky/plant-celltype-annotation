@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.5] - 2026-11-10
+
+From a blinded leaf-atlas run on 0.9.4: a defense-state cluster inside the bundle-sheath island was left Unknown after
+an unresolved type score, a mesophyll-to-phloem bridge was labelled with a layer name, and fine (res1.5) rows reached
+across coarse (res0.3) lineage boundaries in both directions (vascular cells labelled Mesophyll; phloem parenchyma
+extending into the mesophyll body).
+
+### Added
+- **`Within` column** in the annotation table: restricts a row to cells inside other clusters (`key:v1,v2[&key:v]`),
+  e.g. a fine cluster limited to the part inside its coarse cluster. Recorded in `obs['cell_type_source']`.
+- `apply_annotations.py` warns when a row's cells mostly sit in one coarse cluster but reach (>= 200 cells and 10%)
+  into coarse clusters dominated by another type, and suggests the `Within` value.
+
+### Changed
+- **State clusters:** the coarse-resolution assignment (a coarse cluster that is mostly one type without the state,
+  even with a minor neighbouring type) takes precedence over `type_under_state.py`; an unresolved or weak score does
+  not override it.
+- **Layer names need layer evidence:** genes shared by the layer's types, enriched over other layers. Bridge or
+  transitional populations between lineages are `Unknown_<program>`.
+- **Fine clusters that straddle coarse clusters of different types:** the coarse boundary usually holds; cells outside
+  keep their coarse cluster's label unless they carry the type's own markers (ambient photosynthesis does not count).
+- `apply_annotations.py` recognises `leiden_res<x>`-style keys as base resolutions (they were treated as
+  subclusterings); the cell-cycle warning text matches the 0.9.4 rule.
+
 ## [0.9.4] - 2026-10-29
 
 From a blinded leaf-atlas run on 0.9.3: a protoderm cluster (high PDF1/HD-ZIP IV, partial S phase) was relabelled

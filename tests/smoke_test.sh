@@ -151,6 +151,31 @@ assert m > 0.6, 'type_under_state did not place a subset of type A near A'
 print('PASS: type_under_state')
 EOF
 
+step "7f. Within column: a row restricted to cells inside a coarse cluster"
+python - <<'EOF'
+import scanpy as sc, pandas as pd
+a = sc.read_h5ad('synthetic.h5ad')
+fine = a.obs['leiden_res0.8'].astype(str)
+coarse = a.obs['leiden_res0.3'].astype(str)
+# a fine cluster and the coarse cluster holding most of it
+fc = fine.value_counts().index[0]
+cc = coarse[fine == fc].value_counts().index[0]
+pd.DataFrame([['0.8', fc, 'TestType', 'high', f'0.3:{cc}', 'restricted row']],
+             columns=['Resolution', 'Cluster', 'CellType', 'Confidence', 'Within', 'Evidence']).to_csv(
+    'CellTypeAnnotations_within.txt', sep='\t', index=False)
+open('within_expect.txt', 'w').write(str(int(((fine == fc) & (coarse == cc)).sum())))
+EOF
+python "$S/apply_annotations.py" --h5ad synthetic.h5ad --annotations CellTypeAnnotations_within.txt \
+    --out-h5ad annotated_within.h5ad > apply_within.log
+python - <<'EOF'
+import scanpy as sc
+o = sc.read_h5ad('annotated_within.h5ad').obs
+n, want = int((o['cell_type'] == 'TestType').sum()), int(open('within_expect.txt').read())
+assert n == want, f'Within: {n} labelled, expected {want}'
+assert o.loc[o['cell_type'] == 'TestType', 'cell_type_source'].str.contains('@').all()
+print(f'PASS: Within restricts the row ({n:,} cells)')
+EOF
+
 step "7c. lineage tags on the shipped marker tables"
 python "$SKILL/tests/test_lineage_tags.py" | tail -2
 

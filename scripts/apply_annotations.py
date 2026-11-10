@@ -112,6 +112,8 @@ def parse_annotations(path):
         i_state = header.index('state') if 'state' in header else None
         i_ev = header.index('evidence') if 'evidence' in header else None
         i_conf = header.index('confidence') if 'confidence' in header else None
+        i_within = header.index('within') if 'within' in header else None
+        skip = {i_state, i_conf, i_within} - {None}
         for ln, line in enumerate(fh, start=2):
             if not line.strip() or line.lstrip().startswith('#'):
                 continue
@@ -123,19 +125,50 @@ def parse_annotations(path):
                 res, cl, ct = parts[:3]
                 state = parts[i_state] if i_state is not None and i_state < len(parts) else ''
                 conf = norm_confidence(parts[i_conf] if i_conf is not None and i_conf < len(parts) else '', ln)
+                within = parts[i_within] if i_within is not None and i_within < len(parts) else ''
                 if i_ev is not None:
-                    ev = ' '.join(p for j, p in enumerate(parts[i_ev:], start=i_ev) if j != i_conf)
+                    ev = ' '.join(p for j, p in enumerate(parts[i_ev:], start=i_ev) if j not in skip)
                 else:
-                    ev = ' '.join(p for j, p in enumerate(parts[3:], start=3) if j not in (i_state, i_conf))
+                    ev = ' '.join(p for j, p in enumerate(parts[3:], start=3) if j not in skip)
             else:  # legacy whitespace-delimited
                 parts = line.split()
                 if len(parts) < 3:
                     print(f'  WARN line {ln}: <3 columns, skipped')
                     continue
-                res, cl, ct, ev, state, conf = parts[0], parts[1], '_'.join(parts[2:]), '', '', ''
+                res, cl, ct, ev, state, conf, within = parts[0], parts[1], '_'.join(parts[2:]), '', '', '', ''
             rows.append({'line': ln, 'key_spec': res, 'cluster': cl, 'cell_type': ct, 'state': state,
-                         'confidence': conf, 'evidence': ev})
-    return pd.DataFrame(rows, columns=['line', 'key_spec', 'cluster', 'cell_type', 'state', 'confidence', 'evidence'])
+                         'confidence': conf, 'within': within, 'evidence': ev})
+    return pd.DataFrame(rows, columns=['line', 'key_spec', 'cluster', 'cell_type', 'state', 'confidence', 'within',
+                                       'evidence'])
+
+
+BASE_KEY = re.compile(r'^(leiden|louvain)(_?res(olution)?)?_?([0-9.]+)$', re.I)
+
+
+def base_resolution(key_spec, key):
+    """Resolution of a base (whole-dataset) clustering key, or None for subclusterings and imported labels."""
+    try:
+        return float(key_spec)
+    except ValueError:
+        pass
+    m = BASE_KEY.match(str(key)) if key else None
+    return float(m.group(4)) if m else None
+
+
+def within_mask(obs, spec, cols):
+    """Cells inside a Within spec 'key:v1,v2[&key:v...]' (key: a Resolution value or an obs column)."""
+    m = np.ones(len(obs), bool)
+    for part in str(spec).split('&'):
+        if not part.strip():
+            continue
+        if ':' not in part:
+            raise SystemExit(f'Within must be key:v1,v2[&key:v...], got {spec}')
+        k, v = part.split(':', 1)
+        key = resolve_key(k.strip(), cols)
+        if key is None:
+            raise SystemExit(f'Within: no obs column for "{k}"')
+        m &= cluster_mask(obs[key], v)
+    return m
 
 
 CONF_LEVELS = ['high', 'medium', 'low']
@@ -168,6 +201,7 @@ def source_key(out_key):
 LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_bundle|vascular_tissue|stele|'
                           r'ground_tissue|ground)$', re.I)
 STATE_ONLY = {'', '-', 'na', 'none'}
+QC_LABEL = re.compile(r'(?i)^(low_quality|doublet|unresolved|ambient|exclude|qc_)')
 CELL_CYCLE = re.compile(r's_?phase|g2_?m|g1_?s|cell_?cycle|cycling|mitot|dividing|prolif|endoredup', re.I)
 # State names that describe a tested process. Anything else (e.g. '<gene>_<gene>_program') looks like an unexplained
 # private program, which belongs in CellType as Unknown_<program>, not as a state on the majority type.
@@ -267,11 +301,11 @@ def apply(adata, ann, out_key, unknown):
     # coarsest numeric resolution in the table: used to say where leftover cells of a fallback row come from
     nums = []
     for k in ann['key_spec']:
-        try:
-            nums.append((float(k), resolve_key(k, cols)))
-        except ValueError:
-            pass
-    base_key = min((x for x in nums if x[1]), default=(None, None))[1]
+        key_ = resolve_key(k, cols)
+        res_ = base_resolution(k, key_)
+        if res_ is not None and key_:
+            nums.append((res_, key_))
+    base_key = min(nums, default=(None, None))[1]
     for r in ann.itertuples():
         key = resolve_key(r.key_spec, cols)
         state = str(getattr(r, 'state', '') or '').strip()
@@ -281,12 +315,12 @@ def apply(adata, ann, out_key, unknown):
             log.append({**r._asdict(), 'obs_key': '', 'n_cluster': 0, 'n_new': 0, 'n_shadowed': 0,
                         'status': 'missing_key'})
             continue
-        try:
-            float(r.key_spec)
+        if base_resolution(r.key_spec, key) is not None:
             numeric_keys.add(key)
-        except ValueError:
-            pass
         in_cl = cluster_mask(adata.obs[key], r.cluster)
+        within = str(getattr(r, 'within', '') or '').strip()
+        if within:
+            in_cl &= within_mask(adata.obs, within, cols)
         if state_only:
             if not state:
                 print(f'  WARN line {r.line}: CellType "{r.cell_type}" without a State; skipped')
@@ -303,7 +337,7 @@ def apply(adata, ann, out_key, unknown):
         n_sh = int((in_cl & ~free).sum())
         lab[in_cl & free] = r.cell_type
         cf[in_cl & free] = str(getattr(r, 'confidence', '') or '')
-        src[in_cl & free] = f'{r.key_spec}:{r.cluster}'
+        src[in_cl & free] = f'{r.key_spec}:{r.cluster}' + (f'@{within}' if within else '')
         if (n_sh > 0.5 * in_cl.sum() and by_type.get(r.cell_type, 0) > 0
                 and n_new >= max(50, 0.05 * (by_type[r.cell_type] + n_new))):
             # A fallback row: earlier (usually finer) rows already defined this type, and this row adds the cells
@@ -347,6 +381,39 @@ def apply(adata, ann, out_key, unknown):
         print(f'  states in obs["{sk}"] and obs["{out_key}_with_state"]:')
         ct = pd.crosstab(adata.obs[out_key], adata.obs[sk])
         print(ct.loc[:, [c for c in ct.columns if c != 'none']].loc[lambda d: d.sum(1) > 0].to_string())
+    # A finer row whose cells straddle coarse clusters of other types: the coarse lineage boundary usually wins
+    if base_key and base_key in adata.obs.columns:
+        base = adata.obs[base_key].astype(str).to_numpy()
+        for r in ann.itertuples():
+            ct = str(r.cell_type)
+            if (ct.lower() in STATE_ONLY or ct == unknown or QC_LABEL.match(ct)
+                    or CELL_CYCLE.search(str(getattr(r, 'state', '') or ''))):
+                continue
+            key = resolve_key(r.key_spec, cols)
+            if key is None or key == base_key:
+                continue
+            within = str(getattr(r, 'within', '') or '').strip()
+            tag = f'{r.key_spec}:{r.cluster}' + (f'@{within}' if within else '')
+            mine = (src == tag) & (lab == ct)
+            n = int(mine.sum())
+            if n < 200:
+                continue
+            vc = pd.Series(base[mine]).value_counts()
+            home = vc.index[0]  # the coarse cluster holding most of the row's cells
+            bad, good = [], [home]
+            for c, k in vc.iloc[1:].items():
+                dom = pd.Series(lab[base == c]).value_counts()
+                dom = dom[(dom.index != unknown) & ~dom.index.str.match(QC_LABEL)]
+                if len(dom) and dom.index[0] != ct and k >= max(200, 0.1 * n):
+                    bad.append(f'{base_key} {c}: {k:,} cells ({k / n:.0%}), a {dom.index[0]} cluster')
+                elif k >= 0.1 * n:
+                    good.append(c)
+            if bad:
+                print(f'  WARN line {r.line}: {key}={r.cluster} -> {ct} mostly sits in {base_key} {home} but reaches '
+                      'into coarse clusters of other types: ' + '; '.join(bad) + '. The coarse boundary usually '
+                      f'holds: restrict the row with Within = {base_key}:{",".join(map(str, good))} unless those '
+                      f'cells carry {ct}\'s own markers at comparable detection (ambient photosynthesis does not '
+                      'count).')
     sk_ = source_key(out_key)
     src[src == ''] = 'none'
     adata.obs[sk_] = pd.Categorical(src)
@@ -429,8 +496,9 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
                 and not str(g['cell_type'].iloc[0]).lower().startswith('unknown'):
             print(f'  WARN cell-cycle cluster {k}={cl} ({int(g["n_new"].sum()):,} cells) is labelled '
                   f'{g["cell_type"].iloc[0]} as a whole. A predominantly S-phase/G2M cluster is CellType Unknown + '
-                  'the cell-cycle State, unless it is a clear subdivision of that type (sits with its cells at a '
-                  'coarser resolution and carries its markers); say which in Evidence (SKILL.md Step 8).')
+                  'the cell-cycle State, unless it is a clear subdivision of that type (sits with its cells at the '
+                  'cycling cluster\'s own resolution and on the UMAP, and carries its markers); say which in '
+                  'Evidence (SKILL.md Step 8).')
     # A type assembled from many cluster keys, and many subclusterings overall: usually over-clustering.
     # Cell-cycle rows are the allowed exception and are not counted.
     non_cyc = typed[~st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
