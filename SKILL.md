@@ -886,9 +886,11 @@ cell-cycle State (`S_Phase`, `G2M`). Do not type it by scoring the cluster
 as a whole: dividing cells look young and provascular whatever their type,
 so such scores drift to procambium or vasculature. Assign a type only where
 the cycling cells form a **clear subdivision of a type**: a cycling
-cluster or subcluster that sits with that type's cells (on the UMAP and at
-a coarser resolution) and carries its markers, such as S-phase and G2/M
-cells inside an epidermal island that express the protodermal genes. Those
+cluster or subcluster that sits with that type's cells on the UMAP and
+carries its markers, such as S-phase and G2/M cells inside an epidermal
+island that express the protodermal genes. Judge this at the cycling
+cluster's own resolution: at coarse resolutions all cycling cells merge
+into one cycling cluster, so coarse membership says nothing here. Those
 cells take that type plus the State; the rest of the cycling cells stay
 `Unknown` + State. A cycling cluster is the one place where subclusters may
 take a type defined by a larger cluster elsewhere (the fold-back rule
@@ -970,7 +972,11 @@ with no marker in the tables, not a new type.
 4. **Label or keep `Unknown`.** Label the cluster when the evidence holds, at
    lower confidence if it rests on level only. Otherwise keep `Unknown`, and
    write the hypotheses you tested, and why they failed, in the Evidence
-   column.
+   column. **A hypothesis for a missing expected type does not overwrite a
+   supported label** (a protoderm cluster relabelled Trichome because
+   early-epidermis MYBs were enriched). Relabel only when the new genes are
+   more specific to the new type than the current label's genes are to the
+   current one, and say what explains the current label's markers.
 5. **Report what you did.** List the hypotheses, the genes and their
    identity to the reference, and the result. Present this with the
    annotation table.

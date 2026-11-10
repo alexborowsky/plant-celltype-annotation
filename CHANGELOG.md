@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.9.4] - 2026-10-29
+
+From a blinded leaf-atlas run on 0.9.3: a protoderm cluster (high PDF1/HD-ZIP IV, partial S phase) was relabelled
+Trichome on early-epidermis MYBs, and epidermal cycling cells were left Unknown.
+
+### Changed
+- **Protodermal is not Trichome** (pitfalls): MIXTA-like MYBs (MYB16, MYB106/NOECK), SVB/DUF538, HD-ZIP IV (Wo, GL2,
+  ATML1/PDF2) and cuticle genes mark young epidermis as well as trichomes. A Trichome call needs trichome-
+  differentiation genes the rest of the epidermis lacks, or a validated reporter, and a fitting size. The MYB106
+  (Arabidopsis) and Wo (tomato) Trichome rows keep their tier but carry this caveat.
+- **Step 8b:** a hypothesis for a missing expected type does not overwrite a supported label unless its genes are more
+  specific to the new type than the current label's genes are to the current one.
+- **Cell-cycle subdivisions** are judged at the cycling cluster's own resolution and on the UMAP; at coarse resolutions
+  all cycling cells merge into one cluster, so coarse membership no longer blocks typing them.
+
 ## [0.9.3] - 2026-10-27
 
 From a blinded leaf-atlas run on 0.9.2: whole cell-cycle clusters were typed as vasculature, the reporter-defined

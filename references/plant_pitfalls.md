@@ -94,6 +94,18 @@
   its own program (present in all samples, enriched in one) was called
   Mesophyll, first after a SAG12-only test and then as "Mesophyll +
   unexplained state". It should stay `Unknown_<program>`.
+- **Protodermal (young epidermis) is not Trichome.** MIXTA-like MYBs
+  (MYB16, MYB106/NOECK, MIXTA), SVB/DUF538 genes, HD-ZIP IV factors (Wo,
+  GL2, ATML1/PDF2) and cuticle genes are expressed in young, expanding
+  epidermal cells as well as in trichomes; they mark the early epidermal
+  lineage, not trichome fate. A cluster with high L1 genes (PDF1, ATML1/
+  HD-ZIP IV), cuticle genes and a partial cell-cycle signal, next to dividing
+  epidermal cells, is `Protodermal`. Call `Trichome` only with
+  trichome-differentiation genes that the rest of the epidermis lacks
+  (glandular secretion such as acylsugar or terpene enzymes, trichome
+  exudate proteins, endoreduplication with branching genes above the
+  protoderm), or a validated trichome reporter, and with a size that fits
+  trichome abundance (usually a few percent of epidermal cells or less).
 - **States suppress identity markers.** Defense and stress programs lower
   the identity genes and promoter reporters of the cells they sit in, so a
   missing marker is not evidence for another type. A response shared by
