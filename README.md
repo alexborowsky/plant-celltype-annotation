@@ -126,3 +126,9 @@ a marker.
 The survey, reviews and table curation were done with Claude (Anthropic)
 and are being checked by hand. Some `basis` texts are still marked as
 pending review. Corrections are welcome as issues.
+
+## Funding
+
+Development of this skill was supported by a U.S. Department of Energy Genesis
+Program grant (DE-SC0026536) to Jenn Brophy and a National Science Foundation
+Postdoctoral Fellowship (2506370) to Alex Borowsky.
