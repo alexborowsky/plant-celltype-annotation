@@ -17,8 +17,21 @@ Resolution (exact, case-insensitive matches only; nothing is guessed):
      of a symbol, as in SULTR2;1);
      then every target gene whose hit to that reference gene has rank <= --max-rank
   "A/B" is tried as A and B (alternative names of one gene) when "A/B" itself does not resolve.
-Terms that resolve to nothing are reported, with symbols that start with the same letters
-as hints only. Terms with more than --many copies are flagged.
+  Symbols are matched case-insensitively against symbols and aliases (Araport aliases column);
+  a table name with a parenthetical alias, "ZmSCR1 (scro1)", is matched as ZmSCR1 and scro1.
+  A term with spaces or a parenthetical alias ("metacaspase 9", "ZmSCR1 (scro1)") is passed quoted as
+  one argument; the parenthetical form is also tried as its two names.
+  A symbol shared by different reference genes (SMB, FAR1) is reported per reference gene
+  ("SMB [AT1G79580]"), never pooled as copies of one gene.
+Terms that resolve to nothing are reported: when the symbol did resolve to a reference gene but
+no target gene has it as a hit of rank <= --max-rank, the message says so (and gives the best
+rank available). Without --gene-map/--marker-tables, an unresolved symbol stops the run
+(exit 2): symbols need a table to resolve. Terms with more than --many copies are flagged.
+
+Quote symbols that contain ';' (shell command separator): --genes 'CYCB1;1' 'SULTR2;1'.
+--depth-key total_counts: also report the depth-matched expected fraction and O/E per cluster
+(as cluster_evidence.py), and pick the peak cluster by O/E (use for ATAC gene activity, or RNA
+with very uneven depth). --import-labels path:col[:name] adds per-cell labels as a cluster key.
 
 Output: compact markdown to stdout (and --out-md), long TSV to --out (one row per
 term x copy x key x cluster).
@@ -39,7 +52,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cluster_evidence import expression_source, gene_matrix, group_mean_frac, natural_key  # noqa: E402
+from cluster_evidence import (depth_bins, depth_expected, expression_source, gene_matrix,  # noqa: E402
+                              group_mean_frac, natural_key, oe_ratio)
 
 warnings.filterwarnings('ignore')
 
@@ -60,7 +74,17 @@ def clean(s):
 
 
 def name_tokens(s, seps=r'[,|]'):
-    return [t for t in (clean(x) for x in re.split(seps, clean(s))) if t]
+    """Names in a symbol/alias cell; 'ZmSCR1 (scro1)' gives ZmSCR1 (scro1), ZmSCR1 and scro1."""
+    out = []
+    for x in re.split(seps, clean(s)):
+        x = clean(x)
+        if not x:
+            continue
+        out.append(x)
+        m = re.match(r'^(.*?)\s*\(([^()]+)\)\s*$', x)
+        if m:
+            out += [y for y in (clean(m.group(1)), clean(m.group(2))) if y]
+    return list(dict.fromkeys(out))
 
 
 def ref_key(g):
@@ -147,6 +171,8 @@ class GeneResolver:
                 self.var_upper.setdefault(str(c)[:-5].upper(), str(c)[:-5])
         self.in_data = set(self.var) | {str(c)[:-5] for c in obs_columns if str(c).endswith('_expr')}
         self.max_rank = max_rank
+        self.refs = {}  # term -> {ref_key: route} (symbol/ID routes only)
+        self.missed = {}  # term -> {ref_key: (route, best (rank, target) or None)} for refs without usable hits
         self.gm = load_gene_maps(gene_maps)
         self.r1 = rank1_map(self.gm)
         self.ann = load_annotation_tables(gene_annotations)
@@ -164,8 +190,8 @@ class GeneResolver:
     def _build(self):
         self.ann_sym = {}
         if self.ann is not None:
-            for g, s in zip(self.ann.index, self.ann['symbol']):
-                for t in name_tokens(s):
+            for g, s, al in zip(self.ann.index, self.ann['symbol'], self.ann['aliases']):
+                for t in name_tokens(s) + name_tokens(al):
                     self.ann_sym.setdefault(t.upper(), []).append(g)
         self.mk_sym = {}
         if self.markers is not None:
@@ -258,18 +284,27 @@ class GeneResolver:
             refs.setdefault(k, 'reference annotation symbol')
         for k in self.ref_desc.get(T, []):
             refs.setdefault(k, 'reference description name')
-        if self.gm is not None:
-            for k, how in refs.items():
-                for j in self.gm_by_ref.get(k, []):
-                    r = self.gm.iloc[j]
-                    if r['hit_rank'] > self.max_rank:
-                        continue
-                    add(self._copy(r['query_gene'], f"gene map {how} {r['ref_gene']}",
-                                   ref_gene=r['ref_gene'], ref_symbol=(name_tokens(r['ref_symbol']) or [''])[0],
-                                   hit_rank=int(r['hit_rank']), pident=r['pident'], rbh=r['rbh'],
-                                   relationship=r['relationship']))
+        self.missed[t] = {}
+        self.refs[t] = {k: how for k, how in refs.items() if how != 'reference description name'}
+        for k, how in refs.items():
+            hits = self.gm.iloc[self.gm_by_ref.get(k, [])] if self.gm is not None else None
+            if hits is None or not len(hits) or (hits['hit_rank'] > self.max_rank).all():
+                best = None if hits is None or not len(hits) else hits.sort_values('hit_rank').iloc[0]
+                self.missed[t][k] = (how, None if best is None else (int(best['hit_rank']), best['query_gene']))
+                continue
+            for _, r in hits.iterrows():
+                if r['hit_rank'] > self.max_rank:
+                    continue
+                add(self._copy(r['query_gene'], f"gene map {how} {r['ref_gene']}",
+                               ref_gene=r['ref_gene'], ref_symbol=(name_tokens(r['ref_symbol']) or [''])[0],
+                               hit_rank=int(r['hit_rank']), pident=r['pident'], rbh=r['rbh'],
+                               relationship=r['relationship']))
         if not found and '/' in t:
             for part in t.split('/'):
+                for d in self.resolve(part):
+                    add(d)
+        if not found and '(' in t:  # "ZmSCR1 (scro1)": try the name and the alias
+            for part in name_tokens(t)[1:]:
                 for d in self.resolve(part):
                     add(d)
         out = list(found.values())
@@ -288,9 +323,10 @@ class GeneResolver:
 
 
 def parse_terms(genes, genes_file):
+    """Comma-separated or one per argument; a quoted argument with spaces ('metacaspase 9') stays one term."""
     terms = []
     for g in genes or []:
-        terms += [x for x in re.split(r'[,\s]+', g) if x]
+        terms += [x.strip() for x in g.split(',') if x.strip()]
     if genes_file:
         with open(genes_file) as fh:
             for ln in fh:
@@ -300,8 +336,10 @@ def parse_terms(genes, genes_file):
     return list(dict.fromkeys(t.strip() for t in terms))
 
 
-def cluster_stats(adata, X, var_names, genes, key):
-    """-> (groups, sizes, mean, frac, z) over clusters of key (cells with NaN key excluded)."""
+def cluster_stats(adata, X, var_names, genes, key, bins=None):
+    """-> (found, groups, sizes, mean, frac, z, exp) over clusters of key (cells with NaN key excluded).
+
+    exp: depth-matched expected fraction (groups x genes) when bins are given, else None."""
     M, found = gene_matrix(adata, X, var_names, genes)
     lab = adata.obs[key].astype(str).to_numpy()
     ok = ~pd.isna(adata.obs[key].to_numpy()) & (lab != 'nan') & (lab != '')
@@ -310,7 +348,8 @@ def cluster_stats(adata, X, var_names, genes, key):
     sizes = pd.Series(lab[ok]).value_counts().reindex(groups).to_numpy()
     sd = mean.std(0, ddof=0)
     z = (mean - mean.mean(0)) / np.where(sd > 0, sd, 1)
-    return found, groups, sizes, mean, frac, z
+    exp = depth_expected(M, lab[ok], bins.subset(ok), groups) if (bins is not None and found) else None
+    return found, groups, sizes, mean, frac, z, exp
 
 
 def fmt_pid(p):
@@ -338,6 +377,13 @@ def main():
     p.add_argument('--wide', action='store_true', help='also print the fraction in every cluster')
     p.add_argument('--layer', default=None)
     p.add_argument('--use-raw', choices=['auto', 'yes', 'no'], default='auto')
+    p.add_argument('--depth-key', default=None,
+                   help='obs depth column (total_counts, n_fragments): add depth-matched expected fraction and '
+                        'O/E per cluster and pick the peak cluster by O/E (ATAC gene activity, uneven depth)')
+    p.add_argument('--depth-bins', type=int, default=20, help='depth quantile bins for --depth-key')
+    p.add_argument('--import-labels', action='append', default=[],
+                   help='path:col[:new_name] (repeatable), as in cluster_evidence.py: per-cell labels (e.g. '
+                        'published) to use as a --cluster-key')
     p.add_argument('--out', default=None, help='long TSV output')
     p.add_argument('--out-md', default=None, help='markdown output (also printed)')
     args = p.parse_args()
@@ -345,8 +391,10 @@ def main():
     terms = parse_terms(args.genes, args.genes_file)
     if not terms:
         sys.exit('no genes given (--genes or --genes-file)')
-    if not (args.gene_map or args.marker_tables or args.gene_annotation):
-        print('NOTE no --gene-map/--marker-tables/--gene-annotation: only target gene IDs can be resolved')
+    no_tables = not (args.gene_map or args.marker_tables)
+    if no_tables:
+        print('NOTE no --gene-map/--marker-tables: only target gene IDs'
+              + (' and --gene-annotation symbols' if args.gene_annotation else '') + ' can be resolved')
     ref_ann = args.ref_annotation
     if ref_ann is None:
         auto = find_ref_annotation()
@@ -356,6 +404,16 @@ def main():
 
     import scanpy as sc
     adata = sc.read_h5ad(args.h5ad)
+    if args.import_labels:
+        from apply_annotations import import_labels
+        for spec in args.import_labels:
+            import_labels(adata, spec)
+    bins = None
+    if args.depth_key:
+        if args.depth_key not in adata.obs.columns:
+            sys.exit(f'--depth-key {args.depth_key} not in obs')
+        bins = depth_bins(adata.obs[args.depth_key].to_numpy(), args.depth_bins)
+        print(f'  depth-matched O/E on {args.depth_key!r} ({bins.n} quantile bins)')
     for k in args.cluster_key:
         if k not in adata.obs.columns:
             sys.exit(f'{k} not in obs (columns: {", ".join(map(str, adata.obs.columns[:40]))})')
@@ -364,26 +422,59 @@ def main():
                        args.gene_annotation, ref_ann, args.max_rank)
 
     md = [f'# Gene check: {os.path.basename(args.h5ad)} ({adata.n_obs:,} cells; expression from {src})', '']
-    copies, warns = [], []
+    copies, warns, unresolved = [], [], []
     for t in terms:
         cs = res.resolve(t)
         if not cs:
+            unresolved.append(t)
+            miss = res.missed.get(t, {})
+            if miss:
+                parts = []
+                for k, (how, best) in miss.items():
+                    if res.gm is None:
+                        parts.append(f'{k} ({how}), but no --gene-map was given to find target genes')
+                    elif best is None:
+                        parts.append(f'{k} ({how}), but no target gene has it as a hit in the gene map')
+                    else:
+                        parts.append(f'{k} ({how}), but no target gene has it as a hit of rank <= {args.max_rank} '
+                                     f'(best: {best[1]} at rank {best[0]}; --max-rank {best[0]} would include it)')
+                warns.append(f'- **{t}**: resolved to ' + '; '.join(parts) + '. Not checked.')
+                continue
             h = res.hints(t)
             warns.append(f'- **{t}**: resolves to nothing in the given tables; not checked (no guessing). '
                          'Give the reference ID (e.g. the AGI) or a --ref-annotation table with this symbol.'
                          + (f' Names with the same start (hints only): {", ".join(h)}' if h else ''))
             continue
+        # one symbol, different reference genes (SMB, FAR1): report per reference gene, not as copies
+        rk = list(res.refs.get(t, {}))
+        if len(rk) > 1:
+            label = {}
+            for c in cs:
+                k = ref_key(c['ref_gene']) if c['ref_gene'] else ''
+                label[c['gene_id']] = f'{t} [{k}]' if k in rk else t
+            groups_ = sorted(set(label.values()))
+            warns.append(f'- {t}: names {len(rk)} different reference genes ({", ".join(rk)}); reported separately '
+                         f'as {", ".join(groups_)}, not as copies of one gene')
+            for c in cs:
+                c['_term'] = label[c['gene_id']]
+        for term_, sub in pd.Series(cs).groupby([c.get('_term', t) for c in cs]):
+            if len(sub) > args.many:
+                warns.append(f'- {term_}: {len(sub)} copies (gene family?); check rank/identity before using all '
+                             f'of them')
         absent = [c['gene_id'] for c in cs if not c['in_data']]
         if absent:
             warns.append(f'- {t}: {len(absent)} cop{"y" if len(absent) == 1 else "ies"} not in the data '
                          f'(filtered or not expressed): {", ".join(absent[:10])}')
-        if len(cs) > args.many:
-            warns.append(f'- {t}: {len(cs)} copies (gene family?); check rank/identity before using all of them')
         for c in cs:
-            copies.append(dict(term=t, **c))
+            c = dict(c)
+            copies.append(dict(term=c.pop('_term', t), **c))
     if warns:
         md += ['## Warnings', ''] + warns + ['']
     print('\n'.join(md))
+    if unresolved and no_tables:
+        sys.stderr.write(f'ERROR {len(unresolved)} term(s) need a table to resolve ({", ".join(unresolved[:8])}): '
+                         'give --gene-map (from map_markers.py) and/or --marker-tables, or target gene IDs\n')
+        sys.exit(2)
     if not copies:
         sys.exit('nothing resolved')
     cdf = pd.DataFrame(copies)
@@ -393,12 +484,14 @@ def main():
     long = []
     md2 = []
     for key in args.cluster_key:
-        found, groups, sizes, mean, frac, z = cluster_stats(adata, X, var_names, genes, key)
+        found, groups, sizes, mean, frac, z, exp = cluster_stats(adata, X, var_names, genes, key, bins)
+        oe = oe_ratio(frac, exp) if exp is not None else None
         col = {g: i for i, g in enumerate(found)}
         md2 += [f'## {key} ({len(groups)} clusters)', '']
-        head = '| term | gene | homolog (rank, id, RBH) | peak cluster: frac, mean, z | 2nd |'
+        head = ('| term | gene | homolog (rank, id, RBH) | peak cluster (by O/E): frac, exp, O/E, z | 2nd |'
+                if oe is not None else '| term | gene | homolog (rank, id, RBH) | peak cluster: frac, mean, z | 2nd |')
         extra = [c for c in show if c in groups]
-        head += ''.join(f' cl {c}: frac, z |' for c in extra)
+        head += ''.join((f' cl {c}: frac, O/E |' if oe is not None else f' cl {c}: frac, z |') for c in extra)
         md2 += [head, '|' + '---|' * (5 + len(extra))]
         for c in copies:
             g = c['gene_id']
@@ -412,14 +505,19 @@ def main():
                 md2.append(f"| {c['term']} | {g} | {hom} | not in data | |" + ' |' * len(extra))
                 continue
             j = col[g]
-            order = np.argsort(-mean[:, j])
+            order = np.argsort(-(oe[:, j] if oe is not None else mean[:, j]), kind='stable')
             i1 = order[0]
             i2 = order[1] if len(order) > 1 else None
-            pk = f'{groups[i1]}: {frac[i1, j]:.0%}, {mean[i1, j]:.2f}, {z[i1, j]:.1f}'
-            nd = f'{groups[i2]}: {frac[i2, j]:.0%}, z {z[i2, j]:.1f}' if i2 is not None else ''
+            if oe is not None:
+                pk = f'{groups[i1]}: {frac[i1, j]:.0%}, {exp[i1, j]:.0%}, x{oe[i1, j]:.1f}, {z[i1, j]:.1f}'
+                nd = f'{groups[i2]}: {frac[i2, j]:.0%}, x{oe[i2, j]:.1f}' if i2 is not None else ''
+            else:
+                pk = f'{groups[i1]}: {frac[i1, j]:.0%}, {mean[i1, j]:.2f}, {z[i1, j]:.1f}'
+                nd = f'{groups[i2]}: {frac[i2, j]:.0%}, z {z[i2, j]:.1f}' if i2 is not None else ''
             gi = {gr: i for i, gr in enumerate(groups)}
             row = f"| {c['term']} | {g} | {hom} | {pk} | {nd} |" + ''.join(
-                f' {frac[gi[x], j]:.0%}, {z[gi[x], j]:.1f} |' for x in extra)
+                (f' {frac[gi[x], j]:.0%}, x{oe[gi[x], j]:.1f} |' if oe is not None else
+                 f' {frac[gi[x], j]:.0%}, {z[gi[x], j]:.1f} |') for x in extra)
             md2.append(row)
             for i, cl in enumerate(groups):
                 long.append(dict(term=c['term'], gene_id=g, route=c['route'], ref_gene=c['ref_gene'],
@@ -427,6 +525,8 @@ def main():
                                  rbh=c['rbh'], relationship=c['relationship'], key=key, cluster=cl,
                                  n_cells=int(sizes[i]), frac=round(float(frac[i, j]), 4),
                                  mean=round(float(mean[i, j]), 4), z=round(float(z[i, j]), 3),
+                                 **({} if oe is None else dict(frac_exp=round(float(exp[i, j]), 4),
+                                                               oe=round(float(oe[i, j]), 3))),
                                  is_peak=bool(i == i1)))
         md2.append('')
         if args.wide and found:

@@ -120,6 +120,9 @@ def main():
     p.add_argument('--reporters', default='', help='comma-separated obs columns (detected if > 0)')
     p.add_argument('--reporter-cells', default=None, help='SPEC restricting the reporter columns (e.g. treated)')
     p.add_argument('--gene-map', default=None, help='map_markers gene map, to name genes (rank-1 ref_symbol)')
+    p.add_argument('--gene-annotation', default=None,
+                   help='TSV with gene_id + symbol columns (e.g. references/annotation/araport11_genes.tsv.gz) to '
+                        'name genes when the data use the reference IDs themselves (same-species runs)')
     p.add_argument('--depth-key', default='total_counts')
     p.add_argument('--n-genes', type=int, default=100)
     p.add_argument('--call-at', type=float, default=0.7,
@@ -167,6 +170,13 @@ def main():
     order = [qname] + cands + ctrls
     full_n = {n: int(groups[n].sum()) for n in order}
     q_all = np.flatnonzero(groups[qname])  # per-cell mode scores every query cell
+    # check overlaps on the full groups (before sampling, which can hide them)
+    over = [(x, y, int((groups[x] & groups[y]).sum())) for x, y in itertools.combinations(order, 2)
+            if (groups[x] & groups[y]).any()]
+    for x, y, k in over:
+        print(f'WARN groups {x} and {y} share {k:,} cells'
+              + (': a candidate that contains query cells scores the state, not the type; exclude them from it'
+                 if qname in (x, y) else ''))
     for n in order:
         idx = np.flatnonzero(groups[n])
         if len(idx) == 0:
@@ -175,9 +185,6 @@ def main():
             keep = np.zeros(len(obs), bool)
             keep[rng.choice(idx, a.max_cells, replace=False)] = True
             groups[n] = keep
-    over = [(x, y) for x, y in itertools.combinations(order, 2) if (groups[x] & groups[y]).any()]
-    if over:
-        print(f'WARN overlapping groups: {over}')
 
     depth = obs[a.depth_key].to_numpy().astype(float)
     print(f'{adata.n_obs:,} cells; expression from {src}')
@@ -213,6 +220,15 @@ def main():
         if 'hit_rank' in g.columns:
             g = g[g['hit_rank'] == '1']
         sym = {r.query_gene: (r.ref_symbol or r.ref_gene) for r in g.itertuples()}
+    if a.gene_annotation:
+        ga = pd.read_csv(a.gene_annotation, sep='\t', dtype=str).fillna('')
+        if not {'gene_id', 'symbol'} <= set(ga.columns):
+            raise SystemExit(f'--gene-annotation needs gene_id and symbol columns; got {list(ga.columns)}')
+        up = {str(v).upper(): str(v) for v in var_names}
+        for gid, sy in zip(ga['gene_id'], ga['symbol']):
+            v = up.get(gid.upper())
+            if v is not None and sy and v not in sym:
+                sym[v] = sy
     name = lambda i: f"{var_names[i]}" + (f" ({sym[var_names[i]]})" if sym.get(var_names[i]) else '')
 
     rows, gene_rows = [], []

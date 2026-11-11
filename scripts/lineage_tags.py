@@ -25,6 +25,7 @@ bryophyte (liverwort, moss, hornwort), lycophyte, fern, gymnosperm (conifer); an
                                                            microspores, pith
   eudicot      monocot,gymnosperm,bryophyte,lycophyte,fern palisade/spongy mesophyll, adaxial/abaxial epidermis, and
                                                            GL1/GL2/TTG1/TTG2/WRKY44 rows (eudicot-species tables only)
+  +monocot     cambium/periderm/ray rows (secondary growth) from non-monocot species also exclude monocot
   requires=Brassicaceae  Arabidopsis SULTR2;1 / SULTR2;2 rows (their XP vs BS split does not transfer;
                          see plant_pitfalls.md)
 
@@ -131,6 +132,15 @@ GROUPS = [
         r'tapetum', r'microspore',
     )),
 ]
+# Secondary growth (vascular cambium, periderm) is absent from monocots (grasses have none; the few monocots with
+# anomalous secondary growth do not use the eudicot cambium programme), so rows from non-monocot species also
+# exclude monocot.
+SECONDARY_GROWTH = re.compile(r'(?<!pro)cambium|phellem|phellogen|phelloderm|periderm|(^|_)cork|lenticel|'
+                              r'ray_parenchyma|xylem_mother', re.I)
+MONOCOT_SPECIES = ('rice', 'oryza', 'maize', 'zea', 'sorghum', 'wheat', 'triticum', 'barley', 'hordeum', 'setaria',
+                   'millet', 'brachypodium', 'bamboo', 'phyllostachys', 'sugarcane', 'saccharum', 'grass', 'banana',
+                   'musa', 'onion', 'allium', 'asparagus', 'orchid', 'pineapple', 'palm', 'lemna', 'spirodela',
+                   'duckweed', 'monocot')
 EUDICOT_TYPES = re.compile(r'palisade|spongy|abaxial_epiderm|adaxial_epiderm', re.I)
 EUDICOT_SYMBOLS = {'GL1', 'GL2', 'TTG2', 'WRKY44', 'TTG1'}
 EUDICOT_EXCLUDES = ['monocot', 'gymnosperm', 'bryophyte', 'lycophyte', 'fern']
@@ -172,7 +182,8 @@ def group_of(cell_type):
 
 
 def tag_table(df):
-    n = {'angiosperm': 0, 'seed_plant': 0, 'tracheophyte': 0, 'eudicot_only': 0, 'SULTR2_Brassicaceae': 0}
+    n = {'angiosperm': 0, 'seed_plant': 0, 'tracheophyte': 0, 'eudicot_only': 0, 'SULTR2_Brassicaceae': 0,
+         'secondary_growth_monocot': 0}
     for c in ('requires', 'excludes'):
         if c not in df.columns:
             df[c] = ''
@@ -189,6 +200,9 @@ def tag_table(df):
         name, excl = group_of(ct)
         if sp in EUDICOT_SPECIES and (EUDICOT_TYPES.search(ct) or sym in EUDICOT_SYMBOLS):
             name, excl = 'eudicot_only', EUDICOT_EXCLUDES
+        if SECONDARY_GROWTH.search(ct) and not any(sp.startswith(m) for m in MONOCOT_SPECIES) \
+                and not blocked('monocot', req, exc, sp_lin):
+            exc = add(exc, 'monocot'); n['secondary_growth_monocot'] += 1
         changed = False
         for lin in excl:
             if not blocked(lin, req, exc, sp_lin):

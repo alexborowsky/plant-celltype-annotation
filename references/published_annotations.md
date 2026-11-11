@@ -29,6 +29,14 @@ labels can be reused.
 - **A Seurat `.rds`:** export the metadata in R
   (`write.csv(obj@meta.data, "published/labels.csv")`) in a job if the
   object is large. Use R from the `r_seurat` conda env or the R module.
+  Counts: Seurat v5 objects use `LayerData(obj, assay = "RNA", layer =
+  "counts")`; v3/v4 objects use `GetAssayData(obj, slot = "counts")` (or
+  `obj@assays$RNA@counts`), and loading a v3 object may need
+  `UpdateSeuratObject()`. Objects of several GB need a job with 3–5× the
+  file size in memory. Some GEO supplements are gzip files of gzip files
+  (`file x.gz` after one `gunzip` still says gzip); decompress twice.
+- **An `.RData`/`.rda`:** `load()` it in a job and list the objects with
+  `ls()`; label tables are often a separate data.frame next to the object.
 - **A published `.h5ad`:** read only `obs`
   (`sc.read_h5ad(path, backed='r').obs`), and save it as a table.
 - **Label tables:** save as `published/labels.tsv`, with the barcode in the
@@ -49,6 +57,20 @@ labels can be reused.
 - If the data were reprocessed from raw reads (a different aligner or
   genome), a match rate under ~70% makes the per-cell labels unreliable.
   Use the published markers and the cluster table instead.
+- **Multiome (RNA + ATAC of the same nuclei):** labels published from one
+  modality match the other modality's nuclei by barcode (the ATAC and GEX
+  barcodes of 10x Multiome are paired; map them with the whitelist pair if
+  they differ). They are then an independent modality for the data you
+  annotate: adopt them per nucleus after the in-data check, and annotate
+  de novo only the nuclei they do not cover. See `references/atac.md`.
+- **Labels published per cluster only** (a cluster → type table without
+  per-cell labels) are not per-cell evidence. Score the published
+  clusters' markers in your clusters (`scripts/score_gene_sets.py`)
+  instead of using the published clusters as annotation keys.
+- **Pooled-organ atlases:** a subset of a multi-organ atlas (one organ cut
+  from a whole-plant object) can carry labels of types that belong to
+  other organs (shoot meristem labels on root nuclei). Check every adopted
+  label against the expected list of the organ you kept.
 
 ### What to record in `published/README.md`
 

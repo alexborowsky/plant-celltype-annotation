@@ -137,6 +137,11 @@ datasets with little validation, so treat their calls as hypotheses.
 - **Tier rule:** `primary` = at least 15 high-confidence markers, or at least
   2 reviewed datasets and at least 9 high-confidence markers. Tiers are
   recomputed by `survey/sync_to_skill.py` (Oak) whenever drafts change.
+- **`<group>_unmapped_ids.tsv`:** rows whose published IDs could not be
+  mapped to the current genome (basis `REVIEW: … no … ID mapped`, e.g. the
+  Sun 2023 `EVM` IDs for Catharanthus). They cannot match any data, so they
+  are kept out of the main table; use them only to look up the gene by
+  name or sequence.
 - **Status: drafts.** The collation agents checked IDs against the papers'
   tables and UniProt or organism databases, but rows were not independently
   re-verified. Some agents added literature genes beyond the reviews.

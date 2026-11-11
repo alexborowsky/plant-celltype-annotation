@@ -3,6 +3,59 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.10.0] - 2026-11-11
+
+From a 23-dataset RNA re-test round on 0.9.5 and a first round of four snATAC-seq datasets, in which agents were
+told only that the data were ATAC.
+
+### Added
+- **snATAC-seq and multiome support.**
+  - New guide `references/atac.md` and a "snATAC-seq and multiome data" section in SKILL.md: route by assay
+    (adopt per-nucleus multiome RNA labels first), gene activity, mandatory depth control, ATAC QC (organellar-DNA
+    clusters, doublets), lower sensitivity and confidence, LSI subclustering.
+  - `scripts/gene_activity.py`: gene-activity matrix (gene body + 2 kb upstream, strand-aware) from peak counts
+    or from fragment files (Tn5 insertions or fragments). Genes without an accessible region are flagged
+    unmeasurable.
+  - `subcluster.py --lsi`: TF-IDF + SVD on the subset's region counts, with Harmony on `--batch-key`; falls back to
+    `X_lsi_harmony` / `X_lsi` when the object has no PCA.
+- **Depth-matched evidence:** `cluster_evidence.py` and `check_genes.py --depth-key` report observed vs
+  depth-matched expected detection (O/E) and rank by it. `cluster_evidence.py --assay atac` turns this on, turns
+  off the stress-list and RNA doublet flags, reports missing markers as unmeasurable, and adds an `organellar_DNA`
+  cluster flag (`--organelle-regex`).
+- **Cell-cycle lineage carve-out:** a cycling cluster keeps a type when >= 60% of its cells carry one published
+  lineage label, or it sits inside that type's coarse cluster. A large tissue-wide cycling population stays
+  `Unknown` + State even when one type is the majority. `apply_annotations.py` warns about typed cycling clusters
+  above 5% of cells and notes Unknown cycling cells that are mostly one imported label. State `Cycling` for mixed
+  S + G2/M.
+- **Programs that are identities** (bryophyte reprogramming cells, nodule infection zones, ...) stay in CellType when
+  the published atlas defines the cells by them.
+- `check_genes.py --import-labels`; `type_under_state.py --gene-annotation` for same-species runs.
+- Privacy rule: never send the user's name or email to outside services (some literature APIs ask for one).
+- Notes on multiome barcodes, cluster-level published labels, pooled-organ atlases, Seurat v3/v5 count access and
+  double-gzipped GEO files (`references/published_annotations.md`).
+
+### Changed
+- `check_genes.py`: symbols resolve case-insensitively against symbols and aliases (including parenthetical aliases);
+  `--genes` splits on commas only, so quoted names with spaces stay one term; a symbol that resolves but has no
+  target hit within `--max-rank` now says so; exits 2 when a symbol needs a gene map and none was given; one symbol
+  naming different reference genes is listed per gene.
+- `cluster_evidence.py`: the marker dotplot is paginated for very large marker tables.
+- `map_markers.py`: exits with an error when 0% of the IDs match (nothing written); no reference rows left after
+  filtering is now a warning with exit 0 (e.g. the tomato leaf tables for a non-Solanaceae asterid).
+- `apply_annotations.py`: warns when a row has fewer columns than the header (a missing tab shifts fields); QC rows
+  no longer need a Confidence; Evidence wording "intended fallback" acknowledges a fallback row, and "lineage
+  carve-out" / "clear subdivision" a typed cycling cluster.
+- `type_under_state.py`: group overlaps are checked before sampling, with a stronger warning when a candidate
+  contains query cells.
+- Marker tables: cambium, periderm and ray rows from non-monocot species now exclude monocots
+  (`lineage_tags.py`); Catharanthus rows with unmappable Sun 2023 `EVM` IDs moved to
+  `secondary/catharanthus_leaf_unmapped_ids.tsv`.
+- SKILL.md: quote gene symbols containing `;`, spaces or parentheses; write reruns to new folders; Scrublet with a
+  fixed threshold; poppler module note.
+
+### Fixed
+- A lab-internal folder path in the sorghum leaf atlas note.
+
 ## [0.9.5] - 2026-11-10
 
 From a blinded leaf-atlas run on 0.9.4: a defense-state cluster inside the bundle-sheath island was left Unknown after

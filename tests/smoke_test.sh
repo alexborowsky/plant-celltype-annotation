@@ -176,6 +176,124 @@ assert o.loc[o['cell_type'] == 'TestType', 'cell_type_source'].str.contains('@')
 print(f'PASS: Within restricts the row ({n:,} cells)')
 EOF
 
+step "7g. depth-matched O/E and --assay atac (cluster_evidence, check_genes)"
+python - <<'EOF'
+# Gene activity-like data: detection of every gene rises with depth; cluster D is 4x deeper.
+# g_depth has no cluster preference (raw in-vs-out favours D, O/E should not); g_true marks B;
+# cluster C carries organellar (ChrC_) loci as its top genes.
+import numpy as np, pandas as pd, anndata as ad, scanpy as sc
+rng = np.random.default_rng(1)
+cl = np.repeat(['A', 'B', 'C', 'D'], 300)
+depth = rng.lognormal(7, 0.4, len(cl)) * np.where(cl == 'D', 4, 1)
+genes = ['g_depth', 'g_true'] + [f'ChrC_g{i}' for i in range(12)] + [f'g{i}' for i in range(300)]
+p = np.tile(1 - np.exp(-depth / 6000), (len(genes), 1)).T  # Poisson detection: rises with depth
+p[:, 1] = np.where(cl == 'B', 0.7, 0.03)
+p[cl == 'C', 2:14] = 0.9
+X = (rng.random(p.shape) < p).astype(np.float32)
+a = ad.AnnData(X=X, obs=pd.DataFrame({'clu': cl, 'total_counts': depth, 'sample': 's1'},
+                                     index=[f'n{i}' for i in range(len(cl))]), var=pd.DataFrame(index=genes))
+sc.pp.normalize_total(a, target_sum=1e4); sc.pp.log1p(a)
+a.obs['clu'] = a.obs['clu'].astype('category')
+a.write_h5ad('depth_test.h5ad')
+pd.DataFrame({'gene_id': ['g_depth', 'g_true', 'NOT_A_GENE'], 'symbol': ['DEP', 'TRUE', 'MISSING'],
+              'cell_type': ['TypeD', 'TypeB', 'TypeB'], 'evidence': ['function'] * 3}).to_csv(
+    'depth_markers.tsv', sep='\t', index=False)
+pd.DataFrame({'barcode': a.obs_names, 'lab': 'L' + a.obs['clu'].astype(str)}).to_csv(
+    'depth_labels.tsv', sep='\t', index=False)
+EOF
+mkdir -p checks
+python "$S/check_genes.py" --h5ad depth_test.h5ad --cluster-key clu --genes g_depth g_true \
+    --depth-key total_counts --out checks/depth.tsv > depth_check.log
+python - <<'EOF'
+import pandas as pd
+t = pd.read_csv('checks/depth.tsv', sep='\t', dtype={'cluster': str})
+d = t[t.gene_id == 'g_depth'].set_index('cluster')
+raw = d.at['D', 'frac'] / d.drop('D')['frac'].mean()
+print(f"g_depth in D: frac {d.at['D', 'frac']:.2f}, raw in/out x{raw:.1f}, O/E x{d.at['D', 'oe']:.2f}")
+assert raw > 1.5 and d.at['D', 'oe'] < 1.3, 'depth-matched O/E did not remove the depth effect'
+pk = t[(t.gene_id == 'g_true') & t.is_peak]
+assert pk['cluster'].iloc[0] == 'B' and pk['oe'].iloc[0] > 3, 'true marker lost its peak'
+print('PASS: check_genes --depth-key')
+EOF
+python "$S/cluster_evidence.py" --h5ad depth_test.h5ad --output evidence_atac --assay atac \
+    --markers depth_markers.tsv --cluster-keys clu --skip-plots \
+    --stress-genes "$SKILL/references/stress/protoplasting_induced_Shahan2022.txt" > evidence_atac.log
+grep -q "unmeasurable here, not absent" evidence_atac.log && echo "PASS: missing marker reported as unmeasurable"
+grep -q "stress list is ignored" evidence_atac.log && echo "PASS: stress list off for atac"
+python - <<'EOF'
+import re
+md = open('evidence_atac/cluster_evidence_clu.md').read()
+assert 'Assay: ATAC' in md and 'Depth-matched' in md
+sec = {m.group(1): m.group(2) for m in re.finditer(r'## clu cluster (\w+):(.*?)(?=\n## |\Z)', md, re.S)}
+assert 'organellar_DNA' in sec['C'] and 'organellar_DNA' not in sec['A'], 'organellar flag'
+assert 'possible doublets' not in md
+top_b = re.search(r'Marker scores\*\*: (\w+) oe', sec['B']).group(1)
+print('top type by O/E in B:', top_b)
+assert top_b == 'TypeB'
+open('evidence_atac/marker_scores_oe_clu.tsv').read()
+print('PASS: cluster_evidence --assay atac (organellar flag, O/E ranking, doublet/stress off)')
+EOF
+python - <<EOF
+import sys, pandas as pd; sys.path.insert(0, '$S')
+from cluster_evidence import dotplot_pages
+mk = pd.DataFrame({'gene_id': [f'G{i}' for i in range(2708)], 'cell_type': [f'T{i % 60}' for i in range(2708)],
+                   'evidence': 'expression'})
+pages, dropped = dotplot_pages(mk, 120, 8, 6)
+n = sum(len(g) for pg in pages for g in pg.values())
+assert len(pages) <= 6 and all(sum(map(len, pg.values())) <= 120 for pg in pages) and n + dropped == 2708
+print(f'PASS: dotplot pages for 2,708 markers: {len(pages)} pages, {n} genes shown')
+EOF
+
+step "7h. check_genes: import labels, symbol messages, same-symbol genes, no-table exit"
+printf 'query_gene\tref_gene\thit_rank\tpident\tref_symbol\tref_description\trbh\ng_true\tAT1G00001\t1\t80\tTRUEA\t\tyes\ng_depth\tAT1G00002\t3\t40\tLOWR\t\t\ng1\tAT1G00003\t1\t70\tSAMEA\t\tyes\ng2\tAT1G00004\t1\t70\tSAMEB\t\tyes\n' > tiny_map.tsv
+printf 'gene_id\tsymbol\tdescription\taliases\nAT1G00001\tTRUEA\tx\tAliasOne\nAT1G00002\tLOWR\tx\t\nAT1G00003\tSAMEA\tx\tSHARED\nAT1G00004\tSAMEB\tx\tSHARED\n' > tiny_ref.tsv
+python "$S/check_genes.py" --h5ad depth_test.h5ad --cluster-key published \
+    --import-labels depth_labels.tsv:lab:published --genes aliasone LOWR SHARED \
+    --gene-map tiny_map.tsv --ref-annotation tiny_ref.tsv > genes_msgs.log
+grep -q "| aliasone | g_true" genes_msgs.log && echo "PASS: alias, case-insensitive"
+grep -q "LOWR\*\*: resolved to AT1G00002.*rank <= 2 (best: g_depth at rank 3" genes_msgs.log && echo "PASS: rank message"
+grep -q "SHARED: names 2 different reference genes" genes_msgs.log && grep -q "SHARED \[AT1G00003\]" genes_msgs.log \
+    && echo "PASS: same symbol, different genes kept apart"
+grep -q "## published (4 clusters)" genes_msgs.log && echo "PASS: --import-labels as cluster key"
+set +e
+python "$S/check_genes.py" --h5ad depth_test.h5ad --cluster-key clu --genes g_true SOMESYMBOL > genes_notab.log 2>&1
+rc=$?
+set -e
+if [ $rc -eq 2 ] && grep -q "need a table to resolve" genes_notab.log; then echo "PASS: unresolved symbol without tables exits 2"
+else echo "FAIL: exit $rc"; tail -3 genes_notab.log; exit 1; fi
+
+step "7i ATAC. gene activity (peaks and fragments) and subcluster --lsi on synthetic snATAC"
+python "$SKILL/tests/make_synthetic_atac.py" --out atac
+python "$S/gene_activity.py" --h5ad atac/atac.h5ad --gff atac/genes.gff3 --out atac/ga_peaks.h5ad > atac/ga_peaks.log
+python "$S/gene_activity.py" --h5ad atac/atac.h5ad --gff atac/genes.gff3 --out atac/ga_frag.h5ad \
+    --fragments atac/frag/s1_fragments.tsv.gz atac/frag/s2_fragments.tsv.gz > atac/ga_frag.log
+python "$S/subcluster.py" --h5ad atac/atac.h5ad --cluster-key leiden_res0.5 --clusters 0 1 --lsi \
+    --batch-key sample --n-pcs 8 --resolutions 0.3 --output-h5ad atac/sub_lsi.h5ad > atac/sub_lsi.log
+python - <<'EOF'
+import numpy as np, pandas as pd, scanpy as sc
+e = pd.read_csv('atac/expect.tsv', sep='\t').set_index('gene')['type']
+p, f = sc.read_h5ad('atac/ga_peaks.h5ad'), sc.read_h5ad('atac/ga_frag.h5ad')
+assert 'G00' in p.var_names, 'gene: prefix not stripped'
+m = p.var['measurable']
+assert m['G_MINUS_UP'] and not m['G_MINUS_DN'] and not m['G_NOPEAK'], 'strand-aware window or measurable flag wrong'
+t = p.obs['truth'].astype(str).values
+for g, ty in e[e.isin(['A', 'B', 'C'])].items():
+    x = np.asarray(p[:, g].X.todense()).ravel()
+    assert x[t == ty].mean() > 2 * x[t != ty].mean(), f'{g} not enriched in {ty}'
+r = [np.corrcoef(np.asarray(p[:, g].X.todense()).ravel(), np.asarray(f[:, g].X.todense()).ravel())[0, 1]
+     for g in e.index[:30]]
+assert np.median(r) > 0.6, f'peaks vs fragments gene activity disagree (median r {np.median(r):.2f})'
+assert p.obsm['X_lsi'].shape[0] == p.n_obs and 'leiden_res0.5' in p.obs
+s = sc.read_h5ad('atac/sub_lsi.h5ad')
+assert 'X_lsi_sub' in s.obsm and s.uns['subcluster_source']['lsi']
+print(f'PASS: gene activity ({m.sum()}/{len(m)} measurable; peaks vs fragments median r {np.median(r):.2f}); '
+      f'subcluster --lsi ({s.obs["leiden_sub_0.3"].nunique()} subclusters)')
+EOF
+
+step "7j. cycling carve-out warnings and short-row warning (apply_annotations)"
+python "$SKILL/tests/test_apply_cycling.py" "$OUT/carve" > "$OUT/carve.log" 2>&1 || { tail -40 "$OUT/carve.log"; echo "FAIL 7j"; exit 1; }
+grep -E "PASS|FAIL" "$OUT/carve.log"
+
 step "7c. lineage tags on the shipped marker tables"
 python "$SKILL/tests/test_lineage_tags.py" | tail -2
 

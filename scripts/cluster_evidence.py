@@ -31,6 +31,26 @@ Flags in cluster_evidence_<key>.md:
                            doublet score (obs doublet_score / scrublet_score /
                            scDblFinder.score, or --doublet-scores), a cluster median
                            >= 1.5x the dataset median.
+  organellar_DNA           (--assay atac, or with --organelle-regex) >= --organelle-flag of
+                           the top DE genes are organelle-like loci: gene ID, var chromosome
+                           column or rank-1 reference hit (ATCG/ATMG) matches the regex.
+                           In ATAC these are nuclear insertions of plastid/mitochondrial DNA
+                           (NUPT/NUMT) picking up organellar reads: the ATAC version of ambient RNA.
+
+Depth-matched mode (--depth-key, on by default with --assay atac): detection rises with depth
+(UMIs, fragments), so a deep cluster "wins" unrelated markers on raw in-vs-out fractions. Cells are
+binned by depth quantiles (--depth-bins); a gene's expected fraction in a cluster is the
+detection rate of the cells outside the cluster in each depth bin, weighted by the cluster's
+own depth distribution. O/E = observed / expected fraction. Marker types are then ranked by
+score_oe (mean log2 O/E of the type's markers; markers below --min-frac contribute <= 0), the
+drivers shown are the top markers by O/E, and the DE genes shown per cluster are reordered by
+O/E. The z-based score is kept alongside.
+
+--assay atac (gene activity built from accessibility): turns on the depth-matched mode
+(obs total_counts / n_fragments / nCount_peaks ...), the organellar_DNA flag, and reports
+markers missing from var_names as unmeasurable (no accessible region). The protoplasting stress
+list and the possible-doublet flag are switched off (nuclei; depth outliers are not RNA-style
+doublets) and the markdown says so.
 """
 
 import argparse
@@ -85,6 +105,20 @@ QC_CANDIDATES = {
     'organellar': ['pct_organellar', 'pct_counts_organellar', 'pct_chloroplast',
                    'pct_counts_pt', 'pct_counts_mt', 'pct_mt'],
 }
+# ATAC: extra QC columns (shown, never used for flags other than counts/genes)
+ATAC_QC = {
+    'counts': ['total_counts', 'n_fragments', 'nCount_peaks', 'nCount_ATAC', 'n_counts', 'passed_filters'],
+    'genes': ['n_genes_by_counts', 'n_regions', 'n_peaks', 'nFeature_peaks', 'nFeature_ATAC', 'n_genes'],
+    'tss': ['tss_enrichment', 'TSSEnrichment', 'tsse', 'TSS_enrichment'],
+    'frip': ['frip', 'FRiP', 'pct_reads_in_peaks'],
+}
+DEPTH_CANDIDATES = ['total_counts', 'n_fragments', 'nCount_peaks', 'nCount_ATAC', 'n_counts', 'nCount_RNA']
+# Organelle-like loci, matched against gene ID, var chromosome column and rank-1 reference hit ID.
+# Conservative on purpose: unplaced-scaffold names (e.g. Catharanthus CRO.S00...) are not matched;
+# pass --organelle-regex for those.
+DEFAULT_ORGANELLE = (r'(?i)^(ATCG|ATMG)\d|^(chr)?(C|M|Pt|Mt|Cp|chloroplast|mitochondrion|mitochondria|plastid)'
+                     r'([_:.\-]|$)|chloroplast|mitochondri|plastome|plastid_genome')
+CHROM_COLS = ['chrom', 'chr', 'seqname', 'seqid', 'Chromosome', 'chromosome', 'seqnames']
 
 
 # ----------------------------------------------------------------------------
@@ -148,6 +182,116 @@ def group_mean_frac(M, labels):
     frac = dense(ind @ (M > 0).astype(np.float32)) / counts
     order = sorted(range(k), key=lambda i: natural_key(groups[i]))
     return [str(groups[i]) for i in order], mean[order], frac[order]
+
+
+class DepthBins:
+    """Per-cell depth quantile bin (-1 = missing depth) and log depth."""
+
+    def __init__(self, depth, n_bins=20):
+        d = np.asarray(depth, dtype=float)
+        ok = np.isfinite(d) & (d > 0)
+        self.codes = np.full(len(d), -1, dtype=int)
+        self.x = np.where(ok, np.log(np.where(ok, d, 1.0)), np.nan)
+        if ok.sum() >= 2:
+            # rank first so ties (binary/low-count data) still split into quantiles
+            r = pd.Series(d[ok]).rank(method='first')
+            self.codes[ok] = pd.qcut(r, min(n_bins, int(ok.sum())), labels=False, duplicates='drop').astype(int)
+        self.n = int(self.codes.max()) + 1 if ok.any() else 0
+
+    def subset(self, mask):
+        out = DepthBins.__new__(DepthBins)
+        out.codes, out.x, out.n = self.codes[mask], self.x[mask], self.n
+        return out
+
+
+def depth_bins(depth, n_bins=20):
+    return DepthBins(depth, n_bins)
+
+
+def _cloglog_fit(x, n, y, iters=12):
+    """Binomial GLM, complementary log-log link, detection ~ a + b*log(depth), fitted per gene on binned
+    counts (x: bins; n: cells per bin; y: bins x genes detected). This is the Poisson detection model
+    (P = 1 - exp(-rate * depth)) with a free slope. Returns (a, b) arrays over genes."""
+    n = n[:, None] + 1.0
+    p = (y + 0.5) / n
+    eta = np.log(-np.log1p(-np.clip(p, 1e-6, 1 - 1e-6)))
+    X1 = x[:, None]
+    for _ in range(iters):
+        e = np.exp(np.clip(eta, -30, 5))
+        mu = np.clip(1 - np.exp(-e), 1e-6, 1 - 1e-6)
+        dmu = np.maximum(e * np.exp(-e), 1e-9)
+        w = n * dmu ** 2 / (mu * (1 - mu))
+        z = eta + (p - mu) / dmu
+        sw, swx, swxx = w.sum(0), (w * X1).sum(0), (w * X1 ** 2).sum(0)
+        swz, swxz = (w * z).sum(0), (w * X1 * z).sum(0)
+        det = sw * swxx - swx ** 2
+        det = np.where(np.abs(det) > 1e-12, det, np.nan)
+        b = (sw * swxz - swx * swz) / det
+        a = (swz - b * swx) / sw
+        b = np.nan_to_num(b, nan=0.0)
+        a = np.where(np.isfinite(a), a, eta.mean(0))
+        eta = a + b * X1
+    return a, b
+
+
+def depth_expected(M, labels, bins, groups, min_out=20, return_extrap=False):
+    """Expected fraction expressing per (group, gene) at the group's own depth distribution.
+
+    For cluster c and gene g: sum over depth bins b of w[c,b] * out_frac[c,b,g], where w is the share
+    of c's cells in bin b and out_frac the detection rate of the cells outside c in that bin. Where a
+    bin has < min_out outside cells (a cluster much deeper or shallower than the rest), out_frac comes
+    from a cloglog fit of detection on log depth over the outside cells, evaluated at the mean log
+    depth of c's cells in that bin. Rows follow `groups` (as returned by group_mean_frac); cells with
+    bin -1 are ignored. With return_extrap, also the share of each group's cells that needed the fit.
+    """
+    lab = pd.Series(labels).astype(str).to_numpy()
+    gi = {g: i for i, g in enumerate(groups)}
+    code = np.array([gi.get(x, -1) for x in lab])
+    ok = (code >= 0) & (bins.codes >= 0)
+    nb, k = max(bins.n, 1), len(groups)
+    comb = code[ok] * nb + bins.codes[ok]
+    n = int(ok.sum())
+    B = (M[ok] > 0)
+    B = B.astype(np.float32) if sparse.issparse(B) else np.asarray(B, dtype=np.float32)
+    ind = sparse.csr_matrix((np.ones(n, dtype=np.float32), (comb, np.arange(n))), shape=(k * nb, n))
+    D = ind @ B
+    D = (D.toarray() if sparse.issparse(D) else np.asarray(D)).reshape(k, nb, -1).astype(np.float64)
+    ncb = np.bincount(comb, minlength=k * nb).reshape(k, nb).astype(np.float64)
+    xs = np.bincount(comb, weights=bins.x[ok], minlength=k * nb).reshape(k, nb)
+    Db, nbt, xbt = D.sum(0), ncb.sum(0), xs.sum(0)
+    exp = np.full((k, D.shape[2]), np.nan)
+    extrap = np.zeros(k)
+    for c in range(k):
+        if ncb[c].sum() == 0:
+            continue
+        n_out = nbt - ncb[c]
+        w = ncb[c] / ncb[c].sum()
+        with np.errstate(invalid='ignore', divide='ignore'):
+            of = (Db - D[c]) / n_out[:, None]
+            xc = xs[c] / ncb[c]
+        thin = (n_out < min_out) & (w > 0)
+        if thin.any():
+            use = n_out > 0
+            if use.sum() >= 2:
+                with np.errstate(invalid='ignore', divide='ignore'):
+                    x_out = (xbt - xs[c])[use] / n_out[use]
+                a, b = _cloglog_fit(x_out, n_out[use], (Db - D[c])[use])
+                fit = 1 - np.exp(-np.exp(np.clip(a[None, :] + b[None, :] * xc[thin][:, None], -30, 5)))
+                of[thin] = fit
+            else:
+                of[thin] = (Db - D[c]).sum(0) / max(n_out.sum(), 1)
+            extrap[c] = w[thin].sum()
+        of = np.where(np.isfinite(of), of, 0)
+        exp[c] = w @ of
+    return (exp, extrap) if return_extrap else exp
+
+
+OE_PSEUDO = 0.01
+
+
+def oe_ratio(frac, exp):
+    """Observed / expected detection with a 1% pseudo-fraction (stable for rare genes)."""
+    return (frac + OE_PSEUDO) / (np.nan_to_num(exp, nan=0.0) + OE_PSEUDO)
 
 
 def load_markers(paths):
@@ -394,8 +538,11 @@ def run_de(adata, key, n_top, max_cells, use_raw, layer, seed):
     return pd.DataFrame(rows)
 
 
-def add_pct(de, adata, X, var_names, key):
-    """pct expressing inside the cluster and in the rest, on all cells."""
+def add_pct(de, adata, X, var_names, key, bins=None):
+    """pct expressing inside the cluster and in the rest, on all cells.
+
+    With depth bins: also pct_exp (depth-matched expected fraction) and oe, and the genes of each
+    cluster are reordered by O/E (stable; Wilcoxon rank kept in `rank`)."""
     if de.empty:
         return de
     genes = list(dict.fromkeys(de['gene']))
@@ -409,18 +556,31 @@ def add_pct(de, adata, X, var_names, key):
     fo = pd.DataFrame(out_frac, index=groups, columns=found)
     de['pct_in'] = [fi.at[c, g] if g in fi.columns else np.nan for c, g in zip(de['cluster'], de['gene'])]
     de['pct_out'] = [fo.at[c, g] if g in fo.columns else np.nan for c, g in zip(de['cluster'], de['gene'])]
+    if bins is not None and found:
+        exp = pd.DataFrame(depth_expected(M, labels, bins, groups), index=groups, columns=found)
+        de['pct_exp'] = [exp.at[c, g] if g in exp.columns else np.nan for c, g in zip(de['cluster'], de['gene'])]
+        de['oe'] = oe_ratio(de['pct_in'].to_numpy(dtype=float), de['pct_exp'].to_numpy(dtype=float))
+        de = (de.assign(_o=de['cluster'].map(natural_key))
+              .sort_values(['_o', 'oe'], ascending=[True, False], kind='mergesort')
+              .drop(columns='_o').reset_index(drop=True))
     return de
 
 
-def marker_tables(adata, M, found, key, markers, min_frac=0.02):
+def marker_tables(adata, M, found, key, markers, min_frac=0.02, bins=None):
     if not found:
         return pd.DataFrame(), pd.DataFrame()
-    groups, mean, frac = group_mean_frac(M, adata.obs[key].to_numpy())
+    labels = adata.obs[key].to_numpy()
+    groups, mean, frac = group_mean_frac(M, labels)
     sd = mean.std(0, ddof=0)
     z = (mean - mean.mean(0)) / np.where(sd > 0, sd, 1)
     # A marker detected in almost no cells of a cluster must not raise that cluster's score
     # (a gene seen in 4 nuclei can still give z > 2 when every other cluster is at 0).
     z = np.where(frac >= min_frac, z, np.minimum(z, 0))
+    exp = l2oe = None
+    if bins is not None:
+        exp = depth_expected(M, labels, bins, groups)
+        l2oe = np.log2(oe_ratio(frac, exp))
+        l2oe = np.where(frac >= min_frac, l2oe, np.minimum(l2oe, 0))
     long = []
     col = {g: i for i, g in enumerate(found)}
     for _, m in markers.iterrows():
@@ -428,19 +588,40 @@ def marker_tables(adata, M, found, key, markers, min_frac=0.02):
             continue
         j = col[m['gene_id']]
         for i, cl in enumerate(groups):
-            long.append({'cluster': cl, 'cell_type': m['cell_type'], 'gene_id': m['gene_id'],
-                         'symbol': m['symbol'], 'evidence': m['evidence'],
-                         'mean': mean[i, j], 'frac': frac[i, j], 'z': z[i, j]})
+            r = {'cluster': cl, 'cell_type': m['cell_type'], 'gene_id': m['gene_id'],
+                 'symbol': m['symbol'], 'evidence': m['evidence'],
+                 'mean': mean[i, j], 'frac': frac[i, j], 'z': z[i, j]}
+            if exp is not None:
+                r.update(frac_exp=exp[i, j], oe=2 ** l2oe[i, j], log2oe=l2oe[i, j])
+            long.append(r)
     long = pd.DataFrame(long).drop_duplicates(['cluster', 'cell_type', 'gene_id'])
     long['is_function'] = long['evidence'] == 'function'
     long['detected'] = long['frac'] >= min_frac
-    scores = (long.groupby(['cluster', 'cell_type'])
-              .agg(score=('z', 'mean'), frac=('frac', 'mean'), n_markers=('gene_id', 'nunique'),
-                   n_detected=('detected', 'sum'), max_frac=('frac', 'max'),
-                   n_function=('is_function', 'sum'))
-              .reset_index())
+    agg = dict(score=('z', 'mean'), frac=('frac', 'mean'), n_markers=('gene_id', 'nunique'),
+               n_detected=('detected', 'sum'), max_frac=('frac', 'max'), n_function=('is_function', 'sum'))
+    if exp is not None:
+        agg['score_oe'] = ('log2oe', 'mean')
+    scores = long.groupby(['cluster', 'cell_type']).agg(**agg).reset_index()
     scores['n_detected'] = scores['n_detected'].astype(int)
     return long, scores
+
+
+def organelle_mask(genes, adata, gm, rx):
+    """Boolean per gene: ID, var chromosome or rank-1 reference hit matches the organelle regex."""
+    chrom = None
+    for c in CHROM_COLS:
+        if c in adata.var.columns:
+            chrom = adata.var[c].astype(str)
+            break
+    out = []
+    for g in genes:
+        ids = [str(g)]
+        if chrom is not None and g in chrom.index:
+            ids.append(chrom[g])
+        if gm is not None and g in gm.index:
+            ids.append(str(gm.at[g, 'ref_gene']))
+        out.append(any(rx.search(x) for x in ids))
+    return np.array(out, dtype=bool)
 
 
 def composition(adata, key, meta):
@@ -551,7 +732,7 @@ def doublet_check(cl, s, long, aliases, cratio, dratio, min_frac):
 
 def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, n_show, ann=None, min_frac=0.02,
                    stress=None, stress_flag=0.4, stress_inactive=False, keys=None, others=None, aliases=None,
-                   stress_maps=None):
+                   stress_maps=None, assay='rna', depth_key=None, n_bins=0, organelle=None, organelle_flag=0.5, depth_extrap=None):
     lab = adata.obs[key].astype(str)
     sizes = lab.value_counts()
     qc_glob = {k: adata.obs[c].median() for k, c in qc_cols.items()}
@@ -575,6 +756,19 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
             if stress_inactive:
                 f.write("**Stress check inactive**: the stress list matched no gene in this dataset (no gene map "
                         "to Arabidopsis); stress fractions below are not informative.\n")
+        if assay == 'atac':
+            f.write("**Assay: ATAC** (gene activity from chromatin accessibility). Switched off for nuclei: the "
+                    "protoplasting stress list and the possible-doublet flag (depth outliers are not RNA-style "
+                    "doublets). Markers without an accessible region near the gene are unmeasurable, not absent.\n")
+        if depth_key:
+            f.write(f"**Depth-matched** on `{depth_key}` ({n_bins} quantile bins): exp = fraction expected from the "
+                    f"cells outside the cluster at the cluster's own depth distribution; O/E = observed/expected "
+                    f"(+1% pseudo-fraction). Cell types are ranked by `oe` = mean log2 O/E of their markers "
+                    f"(z-based score in brackets); DE genes are reordered by O/E. Read O/E, not raw in-vs-out "
+                    f"fractions: deep clusters detect every gene more often.\n")
+        if organelle is not None:
+            f.write(f"organellar_DNA flag: >= {organelle_flag:.0%} of the top {n_show} DE genes are organelle-like "
+                    f"loci (regex `{organelle.pattern}` on gene ID, chromosome or reference hit).\n")
         if qc_cols:
             f.write('QC shown as cluster median (x dataset median'
                     + (f'; sib x median of sibling clusters, i.e. clusters sharing its {sib_key} parent' if sib_key
@@ -619,6 +813,10 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                         else:
                             flags.append(f"low {k}")
                 f.write('- **QC**: ' + ', '.join(qparts) + '\n')
+                if depth_extrap and depth_extrap.get(cl, 0) >= 0.2:
+                    f.write(f"- **Depth match**: {depth_extrap[cl]:.0%} of cells are deeper/shallower than almost all "
+                            f"other cells; their expected fractions come from a fit of detection on depth "
+                            f"(extrapolated: read O/E with care)\n")
                 if 'counts' in ratios and 'genes' in ratios and ratios['counts'] < 0.6 and ratios['genes'] < 0.6:
                     n_before = len(flags)
                     if sratios.get('counts') is not None and sratios.get('genes') is not None:
@@ -633,6 +831,11 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                     if len(flags) > n_before:  # the candidate flag replaces the separate low counts/genes ones
                         flags = [x for x in flags if not x.startswith(('low counts', 'low genes'))]
             d = de[de['cluster'] == cl].head(n_show) if not de.empty else pd.DataFrame()
+            if organelle is not None and len(d):
+                om = organelle_mask(list(d['gene']), adata, gm, organelle)
+                if om.mean() >= organelle_flag:
+                    flags.append(f"organellar_DNA ({int(om.sum())}/{len(d)} top DE genes on organelle-like loci; "
+                                 f"NUPT/NUMT or organellar reads: a QC artefact, not a cell type)")
             if stress and len(d):
                 sfrac, shit = stress_fraction(list(d['gene']), stress_maps if stress_maps else gm, stress)
                 f.write(f"- **Stress**: {shit}/{len(d)} top DE genes protoplasting-induced ({sfrac:.0%})\n")
@@ -644,35 +847,49 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                 if len(h) and pcols:
                     f.write('- **Parents**: ' + ', '.join(f"{c[7:]}={h.iloc[0][c]}" for c in pcols) + '\n')
             s_all = scores[scores['cluster'] == cl] if not scores.empty else pd.DataFrame()
-            if len(s_all):
+            if len(s_all) and assay != 'atac':
                 dflag = doublet_check(cl, s_all, long, aliases, ratios.get('counts'), ratios.get('doublet'), min_frac)
                 if dflag:
                     flags.append(dflag)
             if flags:
                 f.write('- **FLAGS**: ' + '; '.join(flags) + '\n')
             if len(s_all):
-                s = s_all.sort_values('score', ascending=False).head(4)
+                oe_mode = 'score_oe' in s_all.columns
+                s = s_all.sort_values('score_oe' if oe_mode else 'score', ascending=False).head(4)
                 parts = []
                 for r in s.itertuples():
-                    top = (long[(long['cluster'] == cl) & (long['cell_type'] == r.cell_type)]
-                           .sort_values('z', ascending=False).head(3))
+                    lt = long[(long['cluster'] == cl) & (long['cell_type'] == r.cell_type)]
+                    one = ' [1 gene]' if r.n_detected == 1 else ''
+                    if oe_mode:
+                        top = lt.sort_values('oe', ascending=False).head(3)
+                        drv = ','.join(f"{t.symbol}{'*' if t.is_function else ''}:x{t.oe:.1f} "
+                                       f"({t.frac:.0%} vs exp {t.frac_exp:.0%})" for t in top.itertuples())
+                        parts.append(f"{r.cell_type} oe {r.score_oe:+.2f}{one} (z {r.score:.2f}; det "
+                                     f"{r.n_detected}/{r.n_markers}; best {r.max_frac:.0%}; {drv})")
+                        continue
+                    top = lt.sort_values('z', ascending=False).head(3)
                     oth = long[(long['cluster'] != cl) & (long['cell_type'] == r.cell_type)]
                     fout = oth.groupby('gene_id')['frac'].mean()
                     drv = ','.join(f"{t.symbol}{'*' if t.is_function else ''}:{t.z:.1f} "
                                    f"({t.frac:.0%} vs {fout.get(t.gene_id, 0):.0%})"
                                    for t in top.itertuples())
-                    one = ' [1 gene]' if r.n_detected == 1 else ''
                     parts.append(f"{r.cell_type} {r.score:.2f}{one} (frac {r.frac:.2f}; det {r.n_detected}/{r.n_markers}"
                                  f"; best {r.max_frac:.0%}; {drv})")
                 f.write('- **Marker scores**: ' + ' | '.join(parts) + '\n')
             if len(d):
-                f.write('\n| gene | logFC | pct in/out | homolog |\n|---|---|---|---|\n')
+                has_oe = 'oe' in d.columns
+                if has_oe:
+                    f.write('\n| gene | logFC | pct in/out | exp (depth) | O/E | homolog |\n'
+                            '|---|---|---|---|---|---|\n')
+                else:
+                    f.write('\n| gene | logFC | pct in/out | homolog |\n|---|---|---|---|\n')
                 for r in d.itertuples():
                     gname = r.gene
                     in_gm = gm is not None and r.gene in gm.index
                     if ann is not None and in_gm and r.gene in ann.index and ann.at[r.gene, 'symbol']:
                         gname = f"{r.gene} ({ann.at[r.gene, 'symbol']})"
-                    f.write(f"| {gname} | {r.logfc:+.2f} | {r.pct_in:.2f}/{r.pct_out:.2f} | "
+                    oe_txt = f" {r.pct_exp:.2f} | x{r.oe:.1f} |" if has_oe else ''
+                    f.write(f"| {gname} | {r.logfc:+.2f} | {r.pct_in:.2f}/{r.pct_out:.2f} |{oe_txt} "
                             f"{homolog_str(r.gene, gm, ann=ann, others=others)} |\n")
             f.write('\n')
 
@@ -683,7 +900,31 @@ def rasterize(ax):
             ch.set_rasterized(True)
 
 
-def plots(adata, keys, markers, pdf_path, use_raw, layer):
+def dotplot_pages(mk, max_genes=120, per_type=8, max_pages=6):
+    """Split marker genes into dotplot pages: <= per_type genes per cell type (function-evidence rows
+    first), cell types kept whole, <= max_genes per page, <= max_pages pages. Returns (pages, n_dropped)."""
+    mk = mk.assign(_f=(mk['evidence'] != 'function').astype(int)).sort_values(['cell_type', '_f'], kind='mergesort')
+    groups, dropped = [], 0
+    for ct, sub in mk.groupby('cell_type', sort=True):
+        g = list(dict.fromkeys(sub['gene_id']))
+        dropped += max(0, len(g) - per_type)
+        groups.append((ct, g[:per_type]))
+    pages, cur, n = [], {}, 0
+    for ct, g in groups:
+        if cur and n + len(g) > max_genes:
+            pages.append(cur)
+            cur, n = {}, 0
+        cur[ct] = g
+        n += len(g)
+    if cur:
+        pages.append(cur)
+    if len(pages) > max_pages:
+        dropped += sum(len(g) for pg in pages[max_pages:] for g in pg.values())
+        pages = pages[:max_pages]
+    return pages, dropped
+
+
+def plots(adata, keys, markers, pdf_path, use_raw, layer, max_genes=120, per_type=8, max_pages=6):
     has_umap = 'X_umap' in adata.obsm
     with PdfPages(pdf_path) as pdf:
         for key in keys:
@@ -700,21 +941,24 @@ def plots(adata, keys, markers, pdf_path, use_raw, layer):
                 mk = markers[markers['gene_id'].isin(var_src)].drop_duplicates('gene_id')
                 if mk.empty:
                     continue
-                groups = {}
-                for ct, sub in mk.groupby('cell_type', sort=True):
-                    groups[ct] = list(sub['gene_id'])
-                try:
-                    kw = dict(layer=layer, use_raw=False) if layer else \
-                        dict(use_raw=(adata.raw is not None and use_raw != 'no'))
-                    dp = sc.pl.dotplot(adata, groups, groupby=key, show=False,
-                                       standard_scale='var', return_fig=True, **kw)
-                    dp.make_figure()
-                    fig = plt.gcf()
-                    fig.suptitle(f'Markers by {key} (scaled per gene)')
-                    pdf.savefig(fig, bbox_inches='tight')
-                except Exception as e:  # plotting must never kill the evidence run
-                    print(f'  WARN dotplot for {key} failed: {e}')
-                plt.close('all')
+                pages, dropped = dotplot_pages(mk, max_genes, per_type, max_pages)
+                if dropped:
+                    print(f'  NOTE dotplot for {key}: {dropped} marker genes not shown (at most {per_type} per cell '
+                          f'type, {max_genes} per page, {max_pages} pages); all are in the evidence tables')
+                kw = dict(layer=layer, use_raw=False) if layer else \
+                    dict(use_raw=(adata.raw is not None and use_raw != 'no'))
+                for i, groups in enumerate(pages):
+                    try:
+                        dp = sc.pl.dotplot(adata, groups, groupby=key, show=False,
+                                           standard_scale='var', return_fig=True, **kw)
+                        dp.make_figure()
+                        fig = plt.gcf()
+                        fig.suptitle(f'Markers by {key} (scaled per gene)'
+                                     + (f', page {i + 1}/{len(pages)}' if len(pages) > 1 else ''))
+                        pdf.savefig(fig, bbox_inches='tight')
+                    except Exception as e:  # plotting must never kill the evidence run
+                        print(f'  WARN dotplot for {key} (page {i + 1}) failed: {e}')
+                    plt.close('all')
 
 
 # ----------------------------------------------------------------------------
@@ -765,6 +1009,25 @@ def main():
     p.add_argument('--import-labels', action='append', default=[],
                    help='path:col[:new_name] (repeatable), as in apply_annotations.py; e.g. '
                         'published per-cell labels to evaluate. Pass the new name in --cluster-keys')
+    p.add_argument('--assay', choices=['rna', 'atac'], default='rna',
+                   help='atac: gene activity from accessibility; depth-matched O/E on, organellar_DNA flag on, '
+                        'stress list and doublet flag off, missing markers reported as unmeasurable')
+    p.add_argument('--depth-key', default=None,
+                   help='obs column with per-cell depth (total_counts, n_fragments, ...): report depth-matched '
+                        'expected fractions and O/E and rank by them (default: off for rna; auto for atac). '
+                        "'none' turns it off")
+    p.add_argument('--depth-bins', type=int, default=20, help='depth quantile bins for the depth-matched mode')
+    p.add_argument('--organelle-regex', default=None,
+                   help='regex for organelle-like loci (gene ID, var chromosome column or reference hit ID); '
+                        'turns the organellar_DNA flag on for rna too. Default (atac): ATCG/ATMG hits and '
+                        'chromosome names like ChrC/ChrM/Pt/Mt; unplaced scaffolds are not matched')
+    p.add_argument('--organelle-flag', type=float, default=0.5,
+                   help='flag a cluster when this fraction of its shown top DE genes are organelle-like loci')
+    p.add_argument('--dotplot-max-genes', type=int, default=120,
+                   help='marker dotplot: at most this many genes per page (pages split by cell type) and at most '
+                        '--dotplot-per-type genes per cell type')
+    p.add_argument('--dotplot-per-type', type=int, default=8)
+    p.add_argument('--dotplot-max-pages', type=int, default=6, help='dotplot pages per cluster key')
     args = p.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
@@ -802,6 +1065,32 @@ def main():
         raise SystemExit('No cluster keys found; pass --cluster-keys')
     keys = sorted(dict.fromkeys(keys), key=resolution_of)
     print(f'  cluster keys: {keys}')
+    atac = args.assay == 'atac'
+    if atac:
+        for k, v in ATAC_QC.items():
+            QC_CANDIDATES[k] = v
+        if args.stress_genes:
+            print('  NOTE --assay atac: the protoplasting stress list is ignored (nuclei, gene activity)')
+            args.stress_genes = None
+    depth_key = args.depth_key
+    if depth_key and depth_key.lower() == 'none':
+        depth_key = None
+    elif depth_key is None and atac:
+        depth_key = pick(adata.obs, DEPTH_CANDIDATES)
+        if depth_key is None:
+            print('  WARN --assay atac but no depth column found (' + ', '.join(DEPTH_CANDIDATES)
+                  + '); pass --depth-key. Depth matching is off')
+    bins = None
+    if depth_key:
+        if depth_key not in adata.obs.columns:
+            raise SystemExit(f'--depth-key {depth_key} not in obs')
+        bins = depth_bins(adata.obs[depth_key].to_numpy(), args.depth_bins)
+        nb = bins.n
+        print(f'  depth-matched O/E on {depth_key!r} ({nb} quantile bins; '
+              f'median {np.nanmedian(adata.obs[depth_key].astype(float)):,.0f})')
+    organelle = None
+    if args.organelle_regex or atac:
+        organelle = re.compile(args.organelle_regex or DEFAULT_ORGANELLE)
 
     X, var_names, src = expression_source(adata, args.layer, args.use_raw)
     xmin = X.min() if not sparse.issparse(X) else X.data.min() if X.nnz else 0
@@ -837,7 +1126,11 @@ def main():
                 print(f"    {ct:24s} " + ', '.join(f"{s}({i})" if s != i else i
                                                    for s, i in zip(g['symbol'], g['gene_id'])))
         if (~present).any():
-            print('  WARN markers not in var_names (filtered upstream or ID mismatch), by cell type:')
+            if atac:
+                print('  NOTE markers not in var_names: in gene activity this usually means no accessible region '
+                      'near the gene (unmeasurable here, not absent); if most are missing, check the IDs. By cell type:')
+            else:
+                print('  WARN markers not in var_names (filtered upstream or ID mismatch), by cell type:')
             by_type(markers[~present])
         if zero.any():
             print('  WARN markers in var_names but with 0 counts in every cell: not measurable here, by cell type:')
@@ -898,7 +1191,7 @@ def main():
         if not args.skip_de:
             de = run_de(adata, key, args.n_top, args.max_cells_per_cluster,
                         args.use_raw, args.layer, args.seed)
-            de = add_pct(de, adata, X, var_names, key)
+            de = add_pct(de, adata, X, var_names, key, bins=bins)
             if (gm is not None or ann is not None) and not de.empty:
                 # ref_symbol / ref_description: primary gene-map hit, else the --gene-annotation name
                 sym = pd.Series('', index=de.index)
@@ -922,7 +1215,7 @@ def main():
                 if others:
                     de['other_homologs'] = [other_maps_str(g, others) for g in de['gene']]
             de.to_csv(os.path.join(args.output, f'de_{key}.csv'), index=False)
-        long, scores = (marker_tables(adata, Mk, mk_found, key, markers, args.min_frac)
+        long, scores = (marker_tables(adata, Mk, mk_found, key, markers, args.min_frac, bins=bins)
                         if markers is not None else (pd.DataFrame(), pd.DataFrame()))
         if not long.empty:
             long.to_csv(os.path.join(args.output, f'marker_expression_{key}.tsv'),
@@ -931,22 +1224,36 @@ def main():
             wide = wide.loc[sorted(wide.index, key=natural_key)]
             wide.to_csv(os.path.join(args.output, f'marker_scores_{key}.tsv'),
                         sep='\t', float_format='%.3f')
+            if 'score_oe' in scores.columns:
+                w2 = scores.pivot(index='cluster', columns='cell_type', values='score_oe')
+                w2.loc[sorted(w2.index, key=natural_key)].to_csv(
+                    os.path.join(args.output, f'marker_scores_oe_{key}.tsv'), sep='\t', float_format='%.3f')
             det = scores.copy()
             det['_o'] = det['cluster'].map(natural_key)
             det.sort_values(['_o', 'score'], ascending=[True, False]).drop(columns='_o').to_csv(
                 os.path.join(args.output, f'marker_score_details_{key}.tsv'), sep='\t', index=False,
                 float_format='%.3f')
         comp = composition(adata, key, meta)
+        depth_extrap = {}
+        if bins is not None:
+            labs = adata.obs[key].astype(str).to_numpy()
+            grp = sorted(set(labs), key=natural_key)
+            _, ex = depth_expected(np.ones((adata.n_obs, 1), dtype=np.float32), labs, bins, grp, return_extrap=True)
+            depth_extrap = dict(zip(grp, ex))
         write_markdown(os.path.join(args.output, f'cluster_evidence_{key}.md'), key, adata,
                        de, long, scores, comp, hier, qc_cols, gm, args.n_show, ann=ann, min_frac=args.min_frac,
                        stress=stress, stress_flag=args.stress_flag, stress_inactive=stress_inactive,
-                       keys=keys, others=others, aliases=aliases, stress_maps=gms)
+                       keys=keys, others=others, aliases=aliases, stress_maps=gms, assay=args.assay,
+                       depth_key=depth_key, n_bins=(bins.n if bins is not None else 0),
+                       depth_extrap=depth_extrap,
+                       organelle=organelle, organelle_flag=args.organelle_flag)
         print(f'  wrote cluster_evidence_{key}.md')
 
     if not args.skip_plots:
         print('[4] Plots')
         plots(adata, keys, markers, os.path.join(args.output, 'evidence_plots.pdf'),
-              args.use_raw, args.layer)
+              args.use_raw, args.layer, max_genes=args.dotplot_max_genes, per_type=args.dotplot_per_type,
+              max_pages=args.dotplot_max_pages)
     print('Done.')
 
 

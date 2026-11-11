@@ -9,7 +9,7 @@ Files in this folder:
 | File | Content |
 |---|---|
 | `expected_cell_types.tsv` | Sorghum (C4, NADP-ME type) leaf/seedling-shoot cell types, built from anatomy. `function_markers` = the number of `function` rows in sorghum `Sobic.` IDs (this `markers_draft.tsv` plus the skill core `sorghum_leaf.tsv`, unique by gene ID). Homology sources (maize_leaf primary, arabidopsis_leaf) are listed in `notes` |
-| `markers_draft.tsv` | 39 rows in the skill schema plus `alt_id` and `other_ids`. `ref_gene` = Sobic v3.1 IDs as published. `alt_id` = UniProt/Ensembl `SORBI_3` form. `other_ids` = UniProt accessions plus `v5.1_name_present`: the same locus name exists in the BTx623 v5.1 proteome (`SwiftMultiomeReanalysis/rna_reference_mapping/ortholog_map/v51_gene.faa`). This is a name check only; sequence identity between v3.1 and v5.1 was not checked |
+| `markers_draft.tsv` | 39 rows in the skill schema plus `alt_id` and `other_ids`. `ref_gene` = Sobic v3.1 IDs as published. `alt_id` = UniProt/Ensembl `SORBI_3` form. `other_ids` = UniProt accessions plus `v5.1_name_present`: the same locus name exists in the BTx623 v5.1 proteome. This is a name check only; sequence identity between v3.1 and v5.1 was not checked |
 
 ## Datasets
 
@@ -57,7 +57,7 @@ Remaining: Subsidiary (core CST1 only, never resolved in sorghum single-cell dat
 
 ## Recommended label reference
 
-Swift et al. 2024 Multiome labels (already exported in `SwiftMultiomeReanalysis/SwiftCellTypes.tsv`): adopt Mesophyll, Bundle_Sheath, Guard and Xylem; keep Epidermis and Phloem as lineage-level labels to split in Part B; keep `unknown` unassigned. Caveat: seedling shoots under de-etiolation, so states may differ from mature leaves. Check the v3.1 -> v5.1 ID mapping before using markers on v5.1 data (all 39 names exist in v5.1).
+Swift et al. 2024 Multiome labels (per-nucleus labels from the authors' data): adopt Mesophyll, Bundle_Sheath, Guard and Xylem; keep Epidermis and Phloem as lineage-level labels to split in Part B; keep `unknown` unassigned. Caveat: seedling shoots under de-etiolation, so states may differ from mature leaves. Check the v3.1 -> v5.1 ID mapping before using markers on v5.1 data (all 39 names exist in v5.1).
 
 ## Conflicts
 

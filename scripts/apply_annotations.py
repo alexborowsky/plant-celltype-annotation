@@ -123,6 +123,10 @@ def parse_annotations(path):
                     print(f'  WARN line {ln}: <3 columns, skipped')
                     continue
                 res, cl, ct = parts[:3]
+                if len(parts) < len(header) and not (len(parts) == len(header) - 1 and i_ev == len(header) - 1):
+                    print(f'  WARN line {ln}: {len(parts)} columns but the header has {len(header)}; fields are read '
+                          f'by header position, so a missing tab shifts State/Confidence/Within/Evidence. Check the row '
+                          '(an empty field still needs its tab).')
                 state = parts[i_state] if i_state is not None and i_state < len(parts) else ''
                 conf = norm_confidence(parts[i_conf] if i_conf is not None and i_conf < len(parts) else '', ln)
                 within = parts[i_within] if i_within is not None and i_within < len(parts) else ''
@@ -202,6 +206,10 @@ LAYER_LABELS = re.compile(r'^(epidermis|epidermal|vasculature|vascular|vascular_
                           r'ground_tissue|ground)$', re.I)
 STATE_ONLY = {'', '-', 'na', 'none'}
 QC_LABEL = re.compile(r'(?i)^(low_quality|doublet|unresolved|ambient|exclude|qc_)')
+# Evidence wording that acknowledges an intended fallback row (silences the fallback / shadowed warnings)
+ACK_FALLBACK = re.compile(r'intended fallback|fallback row|fallback for', re.I)
+# Evidence wording that justifies typing a cell-cycle cluster (Step 8: clear subdivision or lineage carve-out)
+ACK_CYCLING = re.compile(r'clear subdivision|carve-?out|published lineage|inside the .{0,40}coarse cluster', re.I)
 CELL_CYCLE = re.compile(r's_?phase|g2_?m|g1_?s|cell_?cycle|cycling|mitot|dividing|prolif|endoredup', re.I)
 # State names that describe a tested process. Anything else (e.g. '<gene>_<gene>_program') looks like an unexplained
 # private program, which belongs in CellType as Unknown_<program>, not as a state on the majority type.
@@ -287,7 +295,7 @@ def canonical_names(ann, colors):
     return ann
 
 
-def apply(adata, ann, out_key, unknown):
+def apply(adata, ann, out_key, unknown, label_keys=()):
     lab = np.array([unknown] * adata.n_obs, dtype=object)
     claimed = np.zeros(adata.n_obs, dtype=bool)  # an explicit Unknown row also claims its cells
     st = np.array([''] * adata.n_obs, dtype=object)
@@ -338,7 +346,8 @@ def apply(adata, ann, out_key, unknown):
         lab[in_cl & free] = r.cell_type
         cf[in_cl & free] = str(getattr(r, 'confidence', '') or '')
         src[in_cl & free] = f'{r.key_spec}:{r.cluster}' + (f'@{within}' if within else '')
-        if (n_sh > 0.5 * in_cl.sum() and by_type.get(r.cell_type, 0) > 0
+        acked = bool(ACK_FALLBACK.search(str(getattr(r, 'evidence', '') or '')))
+        if (n_sh > 0.5 * in_cl.sum() and by_type.get(r.cell_type, 0) > 0 and not acked
                 and n_new >= max(50, 0.05 * (by_type[r.cell_type] + n_new))):
             # A fallback row: earlier (usually finer) rows already defined this type, and this row adds the cells
             # they left out. Those cells are often the edge of a neighbouring type, not more of this one.
@@ -363,7 +372,9 @@ def apply(adata, ann, out_key, unknown):
             status = 'fully_shadowed'
         elif n_sh > 0.5 * in_cl.sum():
             status = 'mostly_shadowed'
-        if status != 'ok':
+        if status == 'mostly_shadowed' and acked:
+            print(f'  note line {r.line}: {key}={r.cluster} -> {r.cell_type}: fallback row (acknowledged in Evidence)')
+        elif status != 'ok':
             print(f'  WARN line {r.line}: {key}={r.cluster} -> {r.cell_type}: {status}')
         print(f'  {key:>22s} {str(r.cluster):>5s} -> {r.cell_type:24s} {n_new:>9,} new {n_sh:>9,} already'
               + (f'  [state {state}]' if state else ''))
@@ -419,7 +430,7 @@ def apply(adata, ann, out_key, unknown):
     adata.obs[sk_] = pd.Categorical(src)
     if (cf != '').any():
         ck = confidence_key(out_key)
-        typed = lab != unknown
+        typed = (lab != unknown) & ~pd.Series(lab).astype(str).str.match(QC_LABEL).to_numpy()
         cf[cf == ''] = 'none'
         adata.obs[ck] = pd.Categorical(cf, categories=CONF_LEVELS + ['none'])
         print(f'  analyst confidence in obs["{ck}"]:')
@@ -427,11 +438,11 @@ def apply(adata, ann, out_key, unknown):
         miss = sorted(set(lab[typed & (cf == 'none')]))
         if miss:
             print(f'  WARN cells of {miss} come from rows without a Confidence; give every type row one')
-    check_labels(log, adata, out_key, numeric_keys, unknown)
+    check_labels(log, adata, out_key, numeric_keys, unknown, label_keys)
     return log
 
 
-def check_labels(log, adata, out_key, numeric_keys, unknown):
+def check_labels(log, adata, out_key, numeric_keys, unknown, label_keys=()):
     """Naming and subcluster sanity warnings (printed; they do not change the labels)."""
     if log.empty:
         return
@@ -491,14 +502,45 @@ def check_labels(log, adata, out_key, numeric_keys, unknown):
                                                        for t, v in split.sort_values(ascending=False).items()))
     # A cell-cycle cluster given one type as a whole (dividing cells of several types gather in one cluster)
     cyc_all = typed[st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
+    n_all = max(adata.n_obs, 1)
     for (k, cl), g in cyc_all.groupby(['obs_key', 'cluster']):
-        if g['cell_type'].nunique() == 1 and int(g['n_new'].sum()) >= 200 \
+        n_g = int(g['n_new'].sum())
+        acked = g['evidence'].astype(str).str.contains(ACK_CYCLING).any() if 'evidence' in g.columns else False
+        if g['cell_type'].nunique() == 1 and n_g >= 200 and not acked \
                 and not str(g['cell_type'].iloc[0]).lower().startswith('unknown'):
-            print(f'  WARN cell-cycle cluster {k}={cl} ({int(g["n_new"].sum()):,} cells) is labelled '
+            print(f'  WARN cell-cycle cluster {k}={cl} ({n_g:,} cells) is labelled '
                   f'{g["cell_type"].iloc[0]} as a whole. A predominantly S-phase/G2M cluster is CellType Unknown + '
                   'the cell-cycle State, unless it is a clear subdivision of that type (sits with its cells at the '
-                  'cycling cluster\'s own resolution and on the UMAP, and carries its markers); say which in '
-                  'Evidence (SKILL.md Step 8).')
+                  'cycling cluster\'s own resolution and on the UMAP, and carries its markers) or the lineage '
+                  'carve-out applies (>= 60% one published lineage, or inside that type\'s coarse cluster); say '
+                  'which in Evidence (SKILL.md Step 8).')
+        if n_g > 0.05 * n_all and not str(g['cell_type'].iloc[0]).lower().startswith('unknown'):
+            print(f'  WARN cell-cycle cluster {k}={cl} is typed ({", ".join(sorted(set(g["cell_type"].astype(str))))}) '
+                  f'and holds {n_g / n_all:.0%} of all cells. A large cycling population spread across the tissue '
+                  '(e.g. a tissue-wide G1/S program) stays Unknown + State even when one type is the majority; type it '
+                  'only through the lineage carve-out (SKILL.md Step 8).')
+    # Unknown + cell-cycle cells that are mostly one published lineage: the carve-out may apply
+    sk_ = state_key(out_key)
+    if label_keys and sk_ in adata.obs.columns:
+        o = adata.obs
+        unk_cyc = (o[out_key].astype(str) == unknown) & o[sk_].astype(str).str.contains(CELL_CYCLE)
+        src_k = source_key(out_key)
+        for tag, idx in o.index[unk_cyc].groupby(o.loc[unk_cyc, src_k].astype(str)).items():
+            if len(idx) < 50:
+                continue
+            for lk in label_keys:
+                if lk not in o.columns:
+                    continue
+                vc = o.loc[idx, lk].astype(str)
+                vc = vc[~vc.isin(['nan', 'None', '', 'NA'])].value_counts()
+                if not len(vc) or vc.sum() < 0.5 * len(idx):
+                    continue
+                top, sh = vc.index[0], vc.iloc[0] / vc.sum()
+                if sh >= 0.6 and not CELL_CYCLE.search(top) and not QC_LABEL.match(top) \
+                        and not top.lower().startswith(('unknown', 'unassigned', 'na_')):
+                    print(f'  NOTE {tag}: {len(idx):,} Unknown cycling cells are {sh:.0%} {lk} "{top}". '
+                          'If that label is a lineage (not a whole-tissue program), the lineage carve-out applies: '
+                          f'type them as the matching type + State (SKILL.md Step 8).')
     # A type assembled from many cluster keys, and many subclusterings overall: usually over-clustering.
     # Cell-cycle rows are the allowed exception and are not counted.
     non_cyc = typed[~st_col.apply(lambda x: bool(CELL_CYCLE.search(x))).to_numpy()]
@@ -645,8 +687,7 @@ def main():
     print(f'  {adata.n_obs:,} cells x {adata.n_vars:,} genes')
     if 'log1p' in adata.uns and 'base' not in adata.uns['log1p']:
         adata.uns['log1p']['base'] = None
-    for spec in args.import_labels:
-        import_labels(adata, spec)
+    label_keys = [import_labels(adata, spec) for spec in args.import_labels]
 
     print(f'[2] Parsing {args.annotations}')
     ann = parse_annotations(args.annotations)
@@ -658,7 +699,7 @@ def main():
         ann = canonical_names(ann, colors)
 
     print('[3] Applying (file order, first match wins)')
-    log = apply(adata, ann, args.key, args.unknown_label)
+    log = apply(adata, ann, args.key, args.unknown_label, label_keys)
     set_colors(adata, args.key, colors, args.unknown_label)
 
     vc = adata.obs[args.key].value_counts()

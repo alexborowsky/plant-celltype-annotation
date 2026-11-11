@@ -2,7 +2,8 @@
 name: plant-celltype-annotation
 description: >-
   Annotate cell types in plant single-cell / single-nucleus RNA-seq data
-  (Scanpy/AnnData) for any species and tissue. Use when the user wants to label
+  (Scanpy/AnnData) for any species and tissue, and in snATAC-seq or
+  multiome data through gene activity. Use when the user wants to label
   Leiden clusters with cell types, find or pick marker genes for a non-model
   plant via Arabidopsis homology, build or revise a cluster→cell-type
   annotation table, subcluster an ambiguous cluster, apply annotations to an
@@ -74,6 +75,13 @@ as a label.
    directly if the object fits its memory and time; otherwise submit them with
    `sbatch` (see `scripts/run_step.sbatch`). Size memory at about 3–5× the
    h5ad size on disk (uncompressed).
+8. **Shell hygiene.** Quote gene symbols that contain `;`, spaces or
+   parentheses (`'CYCB1;1'`, `'SULTR2;1'`, `'ZmSCR1 (scro1)'`): an unquoted
+   `;` ends the command. Write reruns to a new folder instead of deleting
+   the old one; deletions may be refused by the tool's permissions.
+9. **Privacy.** Never put the user's name or email address in requests to
+   outside services (some literature APIs, such as Unpaywall, ask for an
+   email: skip them or use one the user gave you for that purpose).
 
 ## Inputs to collect (ask if missing)
 
@@ -82,10 +90,30 @@ as a label.
 | Dataset provenance | Is this a published dataset (or a reanalysis of one)? Get the paper/DOI and accession (GEO/SRA/ENA). This decides whether Steps 1 and 3 apply. |
 | Clustered h5ad | Needs log-normalized expression (`.raw` or a layer), an embedding (`X_umap`), and one or more cluster columns (`leiden_res0.5`, …). If it has no clustering yet, stop and cluster first. |
 | Species, tissue, and developmental stage | Determines which marker tables apply (`references/markers/`), the `--target-traits` (e.g. `eudicot Solanaceae`, `grass C4`, `Sorghum`), and which caveats matter (C3 vs C4, monocot vs dicot, protoplast vs nuclei). |
-| Species → reference homology | BLASTP/DIAMOND (outfmt 6) of the target's proteins against each reference hub that has tables for its lineage (`references/proteomes.tsv`; e.g. `arabidopsis` for Arabidopsis tables, `rice_msu7`/`maize_v5`/`sorghum_v5` for grass tables). Add the reverse search for RBH and paralog rescue. Build these in a job if absent; DIAMOND `--very-sensitive` takes minutes. |
+| Species → reference homology | BLASTP/DIAMOND (outfmt 6) of the target's proteins against each reference hub that has tables for its lineage (`references/proteomes.tsv`; e.g. `arabidopsis` for Arabidopsis tables, `rice_msu7`/`maize_v5`/`sorghum_v5` (or public `sorghum_v3`) for grass tables). Add the reverse search for RBH and paralog rescue. Build these in a job if absent; DIAMOND `--very-sensitive` takes minutes. |
 | Any curated species markers | For example, a `CellTypeMarkers.txt` the user already trusts. These take priority over the mapped reference markers. |
 | Metadata columns | Sample, replicate, and treatment, used for composition checks. |
 | Transgenes and reporters | Promoter-reporters are strong validation. They are usually excluded from the embedding and may live in `obs` as `<gene>_expr`. |
+
+## snATAC-seq and multiome data
+
+The workflow is written for expression data. For single-nucleus ATAC
+(chromatin accessibility) data, read `references/atac.md` first. In short:
+
+- **Multiome (RNA + ATAC of the same nuclei):** published or your own RNA
+  labels transfer per nucleus by barcode. Adopt them after the Step 3
+  check and annotate from ATAC only the nuclei they do not cover.
+- **ATAC only:** build a gene-activity matrix with
+  `scripts/gene_activity.py` (accessibility over gene body + 2 kb
+  upstream), then run the same scripts on it with `--assay atac` and a
+  depth key (`--depth-key`): detection in gene activity rises with depth,
+  so read markers by depth-matched observed/expected, not raw in-vs-out
+  fractions.
+- Expect lower sensitivity (sparse TFs and channels are often invisible;
+  their absence is not evidence against a type), grade ATAC-only calls one
+  confidence level lower, use ATAC QC (fragments, TSS enrichment, FRiP,
+  organellar-DNA clusters) instead of the RNA stress and doublet flags,
+  and subcluster on LSI (`subcluster.py --lsi`), not PCA.
 
 ## Workflow
 
@@ -432,7 +460,7 @@ python scripts/map_markers.py --no-blast --target-traits Sorghum \
   | Brassicaceae | `arabidopsis` | Arabidopsis tables (`--no-blast` for Arabidopsis itself) |
   | Salicaceae / trees | `poplar`, `arabidopsis` | populus_stem (ref_gene), populus_root (`--id-column alt_id`) |
   | Bryophytes | `marchantia` (liverworts), `physcomitrium` (mosses), `arabidopsis` | marchantia_other, characterized/marchantia, physcomitrium_other; pass `--target-traits bryophyte liverwort` or `moss` |
-  | Other eudicots | `arabidopsis` + the nearest hub (`tomato` for asterids; `poplar`, `soybean` or `medicago` for rosids) | |
+  | Other eudicots | `arabidopsis` + the nearest hub (`tomato` for asterids; `poplar`, `soybean` or `medicago` for rosids) | the tomato *leaf* rows are tagged `Solanaceae`, so a non-Solanaceae asterid gets tomato rows only for other organs; `map_markers.py` then warns that no rows are left and exits 0 |
 
   Run DIAMOND in the allocation, forward and reverse, once per hub
   (minutes per hub).
@@ -593,7 +621,9 @@ keep large datasets tractable.
   skipped, and counts must be ≥ 1.3× the median. Pass per-cell scores with
   `--doublet-scores scrublet.tsv` (barcode + `doublet_score`; or keep them in
   `obs`); the cluster median must then be ≥ 1.5× the dataset median. It is a
-  prompt to check, not a call.
+  prompt to check, not a call. Score per sample with
+  `sc.pp.scrublet(adata_sample, threshold=0.25)`: a fixed threshold avoids
+  the automatic one, which needs scikit-image, and only the scores are used.
 - **Several gene maps:** `--gene-map primary.tsv second.tsv …`; the first
   names DE genes, the others are appended (`[Mp: SYMBOL (ID)]`).
   `de_<key>.csv` carries `ref_symbol`, `ref_description`, `symbol` and
@@ -606,6 +636,16 @@ keep large datasets tractable.
 With published labels (Step 3b), add `--import-labels`, the published key
 in `--cluster-keys`, and the published key in `--meta-keys`. Cells with no
 published label appear as `nan`.
+
+**Depth.** For snATAC gene activity add `--assay atac`: markers and DE
+genes are then ranked by depth-matched observed/expected (O/E), the
+stress-list and doublet flags are off, missing markers read as
+unmeasurable (no accessible region), and clusters dominated by
+organellar-like loci get an `organellar_DNA` flag (a QC artefact, not a
+cell type). For RNA with very uneven depth between clusters, add
+`--depth-key total_counts`. In that mode read O/E, not raw in-vs-out
+fractions. `check_genes.py` takes the same `--depth-key`, and
+`--import-labels` to check genes on published labels.
 
 ### 7. Reason about each cluster
 
@@ -770,8 +810,15 @@ cluster:
    3. **Otherwise** (the state forms its own cluster at every resolution),
       score type genes the state leaves alone (item 10). Subcluster only if
       that fails. Cell-cycle clusters are the exception: they stay
-      `Unknown` + State unless clearly subdivided (Step 8, "Cell-cycle
-      clusters").
+      `Unknown` + State unless clearly subdivided or the lineage carve-out
+      applies (Step 8, "Cell-cycle clusters").
+
+   **Some programs are identities.** Where the field treats a program as a
+   cell identity, keep it in CellType, not State: reprogramming or
+   wound-induced stem cells in bryophytes and regenerating tissue,
+   infection-zone cells in nodules, and similar published identities. Check
+   the Step 3 labels: if the authors named the cells by that program and
+   gave evidence that it defines them, it is a type.
 10. **A state can hide its type's markers.** Defense, stress and cell-cycle
    programs often lower the identity genes, and the promoter reporters, of
    the type they sit in. "The type's marker is not enriched" in a state
@@ -906,6 +953,25 @@ cells take that type plus the State; the rest of the cycling cells stay
 `Unknown` + State. A cycling cluster is the one place where subclusters may
 take a type defined by a larger cluster elsewhere (the fold-back rule
 above), and only on that type's own markers.
+
+**Lineage carve-out.** A cycling cluster keeps a type (type + State) when
+either of these holds:
+
+- **≥ 60% of its cells carry one published *lineage* label** (Step 3), such
+  as a phloem or stomatal lineage whose authors placed the dividing cells
+  in it. A published label that is itself a cell-cycle phase (`G1-S`,
+  `G2-M`, `dividing`) is not a lineage and does not count.
+- **It sits inside one type's coarse cluster**: at a coarser resolution
+  its cells fall in a cluster defined by that type, not in a cycling
+  cluster.
+
+A **large cycling population spread across the tissue** (a G1/S or G2/M
+program in many types, often > 5% of cells) stays `Unknown` + State even
+when one type is the majority; do not give it the majority type. Name the
+reason in Evidence ("lineage carve-out: 72% published MSE"). `apply_annotations.py`
+warns about a typed cycling cluster above 5% of cells, and notes Unknown
+cycling cells that are ≥ 60% one published label (pass the labels with
+`--import-labels`). For a mixed S + G2/M cluster, use the State `Cycling`.
 
 **Don't assemble a type from many pieces.** Define each type by one
 cluster, or a few, at one resolution. A type built from rows of three or
@@ -1065,7 +1131,8 @@ python scripts/apply_annotations.py --h5ad data.h5ad --annotations CellTypeAnnot
 
 Always produce this after applying, and only after Step 8b. It is the
 deliverable that shows *why* each label holds. Look at it: render pages with
-`pdftoppm -png -r 60 report.pdf page` (poppler) and read the PNGs.
+`pdftoppm -png -r 60 report.pdf page` (poppler; on an HPC cluster load its
+module first, e.g. `module load poppler`) and read the PNGs.
 
 ```bash
 python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellTypeAnnotations.txt \
@@ -1195,6 +1262,7 @@ markers belong in published atlas tables, labeled as such.
 | `scripts/check_genes.py` | Any gene-level check (Steps 3, 7, 8b): symbols/IDs → every gene copy → per-cluster fraction, mean, z. Use it instead of typing IDs. |
 | `scripts/type_under_state.py` | Step 7 item 10: the type of a state cluster, judged on candidate-type genes the state does not change, at matched depth. |
 | `scripts/score_gene_sets.py` | Step 3 for labels published only per cluster: score the published clusters' marker lists in the current clusters. |
+| `references/atac.md`, `scripts/gene_activity.py` | snATAC-seq or multiome data: route by assay, gene activity, depth-matched evidence, ATAC QC, LSI subclustering. |
 | `references/stress/protoplasting_induced_Shahan2022.txt` | Judging whether a cluster is dissociation stress. |
 | `references/plant_pitfalls.md` | Reasoning about clusters: states vs types, ambient RNA, lineage-specific cell types, homology traps. |
 | `references/file_formats.md` | Writing annotation, expected-cell-type, marker, color, or gene-map tables. |

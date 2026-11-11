@@ -464,7 +464,10 @@ def load_reference(paths, tissues, min_conf, traits, ref_strip, id_column='ref_g
             log(f"    {r.cell_type:22s} {r.symbol:14s} {why}")
     ref = ref[keep]
     if ref.empty:
-        sys.exit('No reference rows left after filtering.')
+        print('  WARN no reference rows left after filtering (--tissue / --target-traits / --min-confidence): '
+              'these tables do not apply to this target (e.g. tomato leaf rows require Solanaceae). No markers '
+              'written from them.')
+        sys.exit(0)
     return (ref, dropped) if return_dropped else ref
 
 
@@ -578,7 +581,9 @@ def main():
         })
         if targets is not None:
             mapping, n_amb = match_ids(out['gene_id'], targets, args.match_unversioned)
-            report_match('reference IDs', out['gene_id'], mapping, targets, ID_HINT)
+            if report_match('reference IDs', out['gene_id'], mapping, targets, ID_HINT) == 0 and len(out):
+                sys.exit('0% of the reference IDs match the target genes: nothing written. Fix the ID format '
+                         '(see the hint above) and rerun.')
             changed = sum(1 for k, v in mapping.items() if v != [k])
             if changed:
                 print(f'  {changed} reference IDs rewritten to the target\'s IDs'
@@ -630,7 +635,10 @@ def main():
                 rev['ref_gene'] = apply_rewrites(rev['ref_gene'], q_rules)
     if targets is not None:
         mapping, n_amb = match_ids(fwd['query_gene'], targets, args.match_unversioned)
-        report_match('target (query) IDs of the homology input', fwd['query_gene'], mapping, targets, QUERY_HINT)
+        if report_match('target (query) IDs of the homology input', fwd['query_gene'], mapping, targets,
+                        QUERY_HINT) == 0 and len(fwd):
+            sys.exit('0% of the target (query) IDs match the data: nothing written. Fix the ID format (e.g. '
+                     "--query-strip-regex='\\.[0-9]+$' for versioned protein IDs) and rerun.")
         if any(v != [k] for k, v in mapping.items()):
             print('  query IDs rewritten to the target\'s var_names'
                   + (f' ({n_amb} matched several, all kept)' if n_amb else ''))

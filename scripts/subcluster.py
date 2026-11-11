@@ -2,7 +2,7 @@
 """Subcluster selected clusters to resolve ambiguous / mixed populations.
 
 Subsets the chosen clusters, rebuilds the neighbor graph on the existing
-integrated embedding (default X_pca_harmony, else X_pca), recomputes UMAP and
+integrated embedding (default X_pca_harmony, else X_pca; X_lsi* for snATAC), recomputes UMAP and
 Leiden at several resolutions (obs['leiden_sub_<res>']), and writes a
 subcluster h5ad whose obs_names match the parent so labels can be imported
 back with apply_annotations.py --import-labels.
@@ -15,6 +15,13 @@ recomputed on the subset is not batch-corrected: pass --batch-key <obs column>
 (obsm['X_pca_sub_harmony']), which is then used for the neighbor graph. Without
 --batch-key, check the subclusters against sample. If harmonypy is not
 installed the script warns and continues with the uncorrected subset PCA.
+
+snATAC: --lsi recomputes LSI within the subset instead (TF-IDF on the region counts in layers['counts'] or X,
+top --lsi-features most-detected regions, truncated SVD; the first component is dropped when it tracks depth,
+|r| > 0.7), with Harmony on --batch-key as above (obsm['X_lsi_sub'] / ['X_lsi_sub_harmony']). Run it on the
+region (peak or tile) object, not on a gene-activity object; obs_names are shared, so the subclusters import
+onto either. Without --lsi or --recompute-pca the default embedding is the first present of X_pca_harmony,
+X_pca, X_lsi_harmony, X_lsi.
 """
 
 import argparse
@@ -34,7 +41,8 @@ def main():
     p.add_argument('--cluster-key', required=True, help='e.g. leiden_res0.3')
     p.add_argument('--clusters', nargs='+', required=True)
     p.add_argument('--output-h5ad', required=True)
-    p.add_argument('--use-rep', default=None, help='default: X_pca_harmony if present, else X_pca')
+    p.add_argument('--use-rep', default=None,
+                   help='default: first present of X_pca_harmony, X_pca, X_lsi_harmony, X_lsi')
     p.add_argument('--n-neighbors', type=int, default=30)
     p.add_argument('--n-pcs', type=int, default=30)
     p.add_argument('--resolutions', nargs='+', type=float, default=[0.1, 0.3, 0.5, 1.0])
@@ -42,11 +50,17 @@ def main():
     p.add_argument('--recompute-pca', action='store_true',
                    help='select HVGs and run PCA within the subset (X must be log-normalized)')
     p.add_argument('--n-top-genes', type=int, default=2000, help='HVGs for --recompute-pca')
+    p.add_argument('--lsi', action='store_true',
+                   help='snATAC: recompute TF-IDF + SVD (LSI) within the subset from region counts')
+    p.add_argument('--lsi-features', type=int, default=50000, help='most-detected regions used by --lsi')
+    p.add_argument('--counts-layer', default='counts', help='region counts for --lsi (default counts, else X)')
     p.add_argument('--batch-key', default=None,
                    help='obs column with the batch (e.g. sample). With --recompute-pca and >1 level in the subset: '
                         'HVGs are selected per batch and Harmony corrects the subset PCA. Without --recompute-pca '
                         'the existing (already integrated) embedding is used and this is only recorded')
     args = p.parse_args()
+    if args.lsi and args.recompute_pca:
+        raise SystemExit('--lsi and --recompute-pca are alternatives (ATAC regions vs RNA genes): pick one')
 
     adata = sc.read_h5ad(args.h5ad)
     if 'log1p' in adata.uns and 'base' not in adata.uns['log1p']:
@@ -65,7 +79,54 @@ def main():
               + ', '.join(f'{k} {v}' for k, v in sub.obs[args.batch_key].value_counts().items()))
     harmony = False
 
-    if args.recompute_pca:
+    def run_harmony(base):
+        try:
+            import harmonypy
+        except ImportError:
+            print('WARN harmonypy is not installed: continuing with the uncorrected subset embedding; '
+                  'check the subclusters against ' + args.batch_key)
+            return base, False
+        import logging
+        logging.getLogger('harmonypy').setLevel(logging.WARNING)
+        # harmonypy 0.1.0 may return Z_corr as PCs x cells: orient by n_obs
+        # (scanpy's harmony_integrate wrapper mis-orients it for that version).
+        ho = harmonypy.run_harmony(np.asarray(sub.obsm[base]), sub.obs, args.batch_key, random_state=args.seed)
+        Z = np.asarray(ho.Z_corr)
+        Z = Z if Z.shape[0] == sub.n_obs else Z.T
+        sub.obsm[base + '_harmony'] = np.ascontiguousarray(Z, dtype=np.float32)
+        print(f'Harmony on {args.batch_key} ({n_batch} batches) -> obsm[{base}_harmony]')
+        return base + '_harmony', True
+
+    if args.lsi:
+        import scipy.sparse as sp
+        from sklearn.decomposition import TruncatedSVD
+        X = sub.layers[args.counts_layer] if args.counts_layer in sub.layers else sub.X
+        X = sp.csr_matrix(X, dtype=np.float32)
+        if X.nnz and not np.allclose(X.data[:10000], np.round(X.data[:10000])):
+            print('WARN --lsi expects raw region counts; the matrix is not integer (gene activity or normalized?)')
+        det = np.asarray((X > 0).sum(0)).ravel()
+        keep = np.argsort(-det)[:min(args.lsi_features, int((det > 0).sum()))]
+        Xk = X[:, keep]
+        depth = np.asarray(Xk.sum(1)).ravel()
+        tf = sp.diags(1 / np.maximum(depth, 1)) @ Xk
+        idf = np.log1p(sub.n_obs / np.maximum(det[keep], 1))
+        T = sp.csr_matrix(tf @ sp.diags(idf.astype(np.float32)))
+        T.data = np.log1p(T.data * 1e4)
+        n_comp = min(args.n_pcs + 1, T.shape[0] - 1, T.shape[1] - 1)
+        Z = TruncatedSVD(n_comp, random_state=args.seed).fit_transform(T)
+        r = np.corrcoef(Z[:, 0], np.log1p(depth))[0, 1]
+        if abs(r) > 0.7:
+            Z = Z[:, 1:]
+            print(f'LSI component 1 tracks depth (r = {r:.2f}): dropped')
+        Z = (Z - Z.mean(0)) / np.maximum(Z.std(0), 1e-8)
+        sub.obsm['X_lsi_sub'] = Z.astype(np.float32)
+        print(f'Recomputed LSI on {len(keep):,} regions ({Z.shape[1]} components)')
+        rep = 'X_lsi_sub'
+        if n_batch > 1:
+            rep, harmony = run_harmony(rep)
+        elif args.batch_key:
+            print(f'{args.batch_key} has one level in the subset: no batch correction needed')
+    elif args.recompute_pca:
         if 'log1p' not in sub.uns:
             print('WARN uns has no log1p entry: --recompute-pca assumes X is log-normalized')
         hvg_kw = {}
@@ -84,31 +145,15 @@ def main():
         print(f'Recomputed PCA on {int(sub.var["highly_variable"].sum())} subset HVGs')
         rep = 'X_pca_sub'
         if n_batch > 1:
-            try:
-                import harmonypy
-            except ImportError:
-                harmonypy = None
-                print('WARN harmonypy is not installed: continuing with the uncorrected subset PCA; '
-                      'check the subclusters against ' + args.batch_key)
-            if harmonypy is not None:
-                import logging
-                logging.getLogger('harmonypy').setLevel(logging.WARNING)
-                # harmonypy 0.1.0 may return Z_corr as PCs x cells: orient by n_obs
-                # (scanpy's harmony_integrate wrapper mis-orients it for that version).
-                ho = harmonypy.run_harmony(np.asarray(sub.obsm['X_pca_sub']), sub.obs, args.batch_key,
-                                           random_state=args.seed)
-                Z = np.asarray(ho.Z_corr)
-                Z = Z if Z.shape[0] == sub.n_obs else Z.T
-                sub.obsm['X_pca_sub_harmony'] = np.ascontiguousarray(Z, dtype=np.float32)
-                rep, harmony = 'X_pca_sub_harmony', True
-                print(f'Harmony on {args.batch_key} ({n_batch} batches) -> obsm[X_pca_sub_harmony]')
+            rep, harmony = run_harmony(rep)
         elif args.batch_key:
             print(f'{args.batch_key} has one level in the subset: no batch correction needed')
     else:
         if args.batch_key:
             print('NOTE --batch-key without --recompute-pca: using the existing embedding as is '
                   '(it should already be integrated)')
-        rep = args.use_rep or ('X_pca_harmony' if 'X_pca_harmony' in sub.obsm else 'X_pca')
+        rep = args.use_rep or next((k for k in ('X_pca_harmony', 'X_pca', 'X_lsi_harmony', 'X_lsi')
+                                    if k in sub.obsm), 'X_pca')
     if rep not in sub.obsm:
         raise SystemExit(f'{rep} not in obsm; available: {list(sub.obsm.keys())}')
     n_pcs = min(args.n_pcs, sub.obsm[rep].shape[1])
@@ -122,7 +167,7 @@ def main():
         print(f'  {k}: {sub.obs[k].nunique()} clusters')
     sub.uns['subcluster_source'] = {'h5ad': args.h5ad, 'cluster_key': args.cluster_key,
                                     'clusters': ids, 'use_rep': rep,
-                                    'recompute_pca': bool(args.recompute_pca),
+                                    'recompute_pca': bool(args.recompute_pca), 'lsi': bool(args.lsi),
                                     'batch_key': args.batch_key or '', 'harmony': bool(harmony)}
     sub.write_h5ad(args.output_h5ad)
     print(f'Wrote {args.output_h5ad}')

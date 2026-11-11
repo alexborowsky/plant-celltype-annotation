@@ -136,6 +136,10 @@ the DOI or URL in `source`. Set `requires`/`excludes` from the biology (see
   web-page summarizer; they can be wrong.
 - Use APIs and repositories that allow scripted access: NCBI E-utilities,
   the Europe PMC REST API, GitHub, Zenodo, journal supplementary links.
+- Never send the user's name or email address to an outside service.
+  Some APIs (Unpaywall, NCBI's `email=` parameter) ask for one: leave it
+  out, or skip the service, unless the user gave you an address for that
+  purpose. Tell sub-agents doing the search the same.
 - Do not try to get around captchas, logins, or paywalls. If a needed
   supplement is inaccessible, tell the user which file you need and ask
   them to download it.
