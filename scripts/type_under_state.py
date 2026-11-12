@@ -113,9 +113,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--h5ad', required=True)
     p.add_argument('--query', required=True, help='NAME=SPEC: the state cells whose type is in question')
-    p.add_argument('--candidate', action='append', required=True, help='NAME=SPEC (>= 2): candidate types, '
+    p.add_argument('--candidate', nargs='+', action='extend', required=True, help='NAME=SPEC (>= 2): candidate types, '
                    'defined by cells without the state')
-    p.add_argument('--control', action='append', default=[], help='NAME=SPEC: other groups scored like the query')
+    p.add_argument('--control', nargs='+', action='extend', default=[], help='NAME=SPEC: other groups scored like the query')
     p.add_argument('--genes', default='', help='comma-separated gene IDs to tabulate (markers)')
     p.add_argument('--reporters', default='', help='comma-separated obs columns (detected if > 0)')
     p.add_argument('--reporter-cells', default=None, help='SPEC restricting the reporter columns (e.g. treated)')

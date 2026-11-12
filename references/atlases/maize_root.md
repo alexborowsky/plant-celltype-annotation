@@ -6,7 +6,7 @@ Date: 2026-10-20. This collates four paper-only reviews (one per subfolder, each
 
 Files in this folder:
 - `expected_cell_types.tsv`: expected types for a maize primary/seminal root tip (0-5 mm), written from anatomy. `function_markers` counts `function` rows in `markers_draft.tsv`.
-- `markers_draft.tsv`: 65 rows in the skill marker-table schema plus `alt_id`. `ref_gene` holds B73 RefGen_v4 IDs (`Zm00001d`) and `alt_id` holds B73 v5 IDs (`Zm00001eb`). For v5 data, use `map_markers.py --id-column alt_id`. Field counts were validated with awk.
+- `markers_draft.tsv`: 65 rows in the skill marker-table schema plus `alt_id`. The draft has B73 RefGen_v4 IDs (`Zm00001d`) in `ref_gene` and v5 IDs (`Zm00001eb`) in `alt_id`; the skill table (`references/markers/primary/maize_root.tsv`) swaps them, so it has **v5 in `ref_gene` and v4 in `alt_id`**. For v4 data, use `map_markers.py --id-column alt_id`. Field counts were validated with awk.
 - `OrtizRamirez2021/`, `Guillotin2023/`, `Wang2025/`, `Cao2023/`: the per-dataset reviews, supplements and extracted tables.
 
 The skill has no maize marker table, and this draft does not edit the skill.

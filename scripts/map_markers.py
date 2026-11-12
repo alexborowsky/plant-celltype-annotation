@@ -526,7 +526,7 @@ def main():
     p.add_argument('--target-traits', nargs='*', default=None,
                    help='traits of the target species, e.g. eudicot Solanaceae | grass C4 | Sorghum | liverwort | '
                         'moss | gymnosperm | lycophyte | fern (see IMPLIES)')
-    p.add_argument('--tissue', action='append', default=None,
+    p.add_argument('--tissue', nargs='+', action='extend', default=None,
                    help="tissue(s) to keep (repeatable, e.g. --tissue leaf --tissue any). Default: all")
     p.add_argument('--min-confidence', choices=list(LEVELS), default='low')
     p.add_argument('--max-marker-rank', type=int, default=1,

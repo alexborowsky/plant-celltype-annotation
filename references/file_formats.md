@@ -76,6 +76,9 @@ Resolution	Cluster	CellType	State	Confidence	Within	Evidence
   `adata.obs` column name, including labels imported with `--import-labels`.
 - `Cluster` is compared as a string against that column. A comma list
   (`0,1,12`) matches any of the listed clusters.
+- Values may contain spaces and `:` (published labels such as
+  `Cell Cycle: G1-S`); in `Within`, only the first `:` separates the key.
+  A value containing `,` or `&` cannot be matched: rename it on import.
 - A numeric `Resolution` also resolves Seurat-style columns
   (`snn_res0.5`, `SCT_snn_res.0.5`, `RNA_snn_res.0.5`, `integrated_snn_res.0.5`, `louvain_res0.5`).
 - `CellType` should use `Title_Case_With_Underscores`. Names are matched

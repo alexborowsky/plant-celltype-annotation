@@ -8,11 +8,18 @@ Check what the object holds before anything else: a peak or tile matrix, fragmen
 
 | Situation | Route |
 |---|---|
-| **Multiome, with published RNA labels for the same nuclei** (same barcodes) | The RNA labels are per-nucleus evidence from an independent modality. Run Part A on them (check them on gene activity as Step 3b describes), adopt the ones that pass **per nucleus** (`--import-labels`, adopted rows first), put clear QC rows before them, and use ATAC only for nuclei the RNA labels leave out. |
+| **Multiome, with published RNA labels for the same nuclei** (same barcodes) | The RNA labels are per-nucleus evidence from an independent modality. Run Part A on them (check them on gene activity as Step 3b describes), adopt the ones that pass **per nucleus** (`--import-labels`, adopted rows first), put Doublet rows before them, and use ATAC only for nuclei the RNA labels leave out. |
 | **Multiome, RNA counts available, no labels** | Annotate the RNA modality with the normal skill. Use ATAC as a second readout only. |
 | **ATAC only, published per-nucleus labels** | Part A as usual. Published ATAC labels are themselves inferred from accessibility, so a disagreement is not automatically your error. Say which side the evidence favours. |
 | **ATAC only, published labels per cluster** (cluster IDs + a label table) | The labels describe the authors' clusters, not each nucleus. Map them only where your clusters reproduce theirs. Never treat them as per-nucleus evidence, and do not use the published clusters as annotation rows without checking each one. |
 | **ATAC only, no labels** | De novo (Part B) on gene activity, with the depth controls and lower confidence below. |
+
+In the multiome route:
+- RNA-**Unassigned** (or unknown) nuclei count as not covered: annotate them from ATAC.
+- An RNA-labelled nucleus that fails only an ATAC QC criterion (low fragments, organellar-DNA cluster) keeps its RNA
+  label; only doublets override it. Put Doublet rows before the adopted rows, other ATAC QC rows after them.
+- De novo fallback rows placed after the adopted rows add only the uncovered nuclei and trigger
+  `mostly_shadowed`; write "intended fallback" in their Evidence to acknowledge that.
 
 Pooled-organ atlases (several organs in one object) can carry labels from the other organs. Subset to the organ you are annotating first, and drop labels that cannot occur in it.
 
@@ -72,6 +79,8 @@ Gene activity detection rises with depth, and depth can vary 100–1,000-fold be
 
 - Cluster on LSI (TF-IDF + SVD on peaks or tiles; drop the first component when it tracks depth), Harmony-corrected across samples. Do not use a PCA of gene activity for clustering.
 - **Subcluster** with `subcluster.py --lsi --batch-key sample` on the **peak object**. It recomputes LSI within the subset. Then import the subclusters onto the gene-activity object; obs_names are shared. Without `--lsi`, it uses `X_lsi_harmony` or `X_lsi` when there is no PCA.
+  Small subsets (a few hundred nuclei) often form one cluster at resolutions 0.2–0.5; try 0.8–1.0 before concluding
+  the subset is homogeneous (`--resolutions 0.3 0.5 0.8 1.0`).
 
 ## 7. States and names
 

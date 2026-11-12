@@ -3,6 +3,44 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.10.1] - 2026-11-12
+
+From the v0.10.0 re-test (four snATAC datasets and three RNA regressions). The cycling carve-out and the
+ATAC route worked; these are the remaining issues.
+
+### Added
+- `annotation_report.py --assay atac` / `--depth-key`: the report judges markers by depth-matched O/E, like
+  `cluster_evidence.py`, so its confidence no longer contradicts the evidence files.
+- `cluster_evidence.py --qc-keys` (TSS enrichment, FRiP or other QC columns per cluster; automatic for common names
+  in ATAC mode).
+- The `organellar_DNA` flag also catches nuclear organellar insertions: a shipped list of the Arabidopsis chr2
+  mitochondrial insertion (`references/annotation/arabidopsis_numt_chr2.tsv`) and organellar-product descriptions.
+- Notes: multiome route details (RNA-Unassigned nuclei, ATAC-only QC failures, fallback rows), small LSI subsets need
+  higher resolutions, reporter-sorted (FACS) capture bias, resumable multi-GB downloads, cleaning a target proteome,
+  Physcomitrium v6 vs v3 IDs, label values containing spaces or `:`.
+
+### Changed
+- Marker-score rankings shrink each type's mean by set size (x n/(n+2)), so one-gene types no longer outrank
+  coherent multi-gene types; displayed scores are unchanged.
+- List options take several values after one flag or the flag repeated: `--import-labels`, `--extra-genes`,
+  `--alias`, `--state-genes`, `--candidate`, `--control`, `--tissue`.
+- `check_genes.py`: table symbols written `A/B`, `A; B` or `A (B)` match on each part; loose matching of hyphen and
+  prefix variants (HB15 ~ ATHB-15); with a key that labels only some cells, the expectation uses all other cells.
+- Cycling carve-out: no note on published cell-cycle-phase or QC labels, none when the row is keyed on the label
+  column itself; the > 5% warning counts the cells each row actually typed (after `Within`) and is silenced by
+  carve-out Evidence. A revised published label still carries the carve-out if it keeps the lineage; a
+  `type_under_state.py` verdict does not type a large cycling cluster. The cell-cycle pattern now also matches
+  spellings like `Cell Cycle: G1-S`.
+- `Unknown*` rows no longer need a Confidence.
+- Report layout: long violin labels rotate and are shortened; long page subtitles wrap.
+- Marker tables: liverwort-only Marchantia types (gemma, notch, air pores, ventral scales, ...) now require
+  `liverwort`.
+
+### Fixed
+- `atlases/maize_root.md` described the ref_gene/alt_id ID versions the wrong way round for the shipped table.
+- Catalog: per-nucleus label access for Dorrity et al. 2021 (Arabidopsis root snATAC).
+- Poppler instructions name the prerequisite module case.
+
 ## [0.10.0] - 2026-11-11
 
 From a 23-dataset RNA re-test round on 0.9.5 and a first round of four snATAC-seq datasets, in which agents were

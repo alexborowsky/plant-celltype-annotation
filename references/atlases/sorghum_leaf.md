@@ -69,6 +69,7 @@ Swift et al. 2024 Multiome labels (per-nucleus labels from the authors' data): a
 ## Could not verify
 
 - RNA-atlas per-cell labels and counts: only in the 2.5 GB GEO RData (not downloaded); the labelled object from Script 26 was not deposited.
+- Multiome per-nucleus labels: the GEO multiome RData (~3.3 GB) holds Seurat objects whose `Idents` are the published cell types; sample identity must be recovered by barcode overlap with the per-sample matrices (found by the 2026-11 snATAC test).
 - ED Fig 2h/4 images were not inspected; the review used the text, legends and supplementary tables.
 - v3.1 -> v5.1 mapping: name presence only (the Phytozome synonym table needs a login).
 - Functional names for six genes that are uncharacterized in UniProt (DiT2-like, MYB36-like, HDG11-like, HDG2-like, SUT1, FT-like) come from the paper's best-hit annotation only.

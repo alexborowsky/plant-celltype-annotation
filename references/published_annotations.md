@@ -35,6 +35,10 @@ labels can be reused.
   `UpdateSeuratObject()`. Objects of several GB need a job with 3–5× the
   file size in memory. Some GEO supplements are gzip files of gzip files
   (`file x.gz` after one `gunzip` still says gzip); decompress twice.
+- **Multi-GB downloads (GEO supplements):** use a resumable, size-checked
+  download (`curl -C - --retry 5 -o file URL`, then compare the size with
+  the server's `Content-Length` from `curl -sI`) instead of one long
+  transfer that may be cut off silently.
 - **An `.RData`/`.rda`:** `load()` it in a job and list the objects with
   `ls()`; label tables are often a separate data.frame next to the object.
 - **A published `.h5ad`:** read only `obs`
@@ -133,6 +137,11 @@ related species (found in Step 4 if needed).
   cells appear.
 - **Tissue sampling:** a "leaf" sample may or may not include the midrib,
   the petiole, or the margins. Ask the user if it matters.
+- **Reporter-sorted (FACS) samples:** cells sorted on a cell-type reporter
+  are enriched for that type and its neighbours far beyond their share of
+  the tissue, and other types are rare or missing. Judge proportions
+  against the sorting, not the organ, and expect sorting-gate neighbours
+  (e.g. phloem pole pericycle in a phloem reporter sort).
 
 ## Step 3: evaluating the published annotation
 

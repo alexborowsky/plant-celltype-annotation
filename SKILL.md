@@ -79,6 +79,9 @@ as a label.
    parentheses (`'CYCB1;1'`, `'SULTR2;1'`, `'ZmSCR1 (scro1)'`): an unquoted
    `;` ends the command. Write reruns to a new folder instead of deleting
    the old one; deletions may be refused by the tool's permissions.
+   List options (`--import-labels`, `--extra-genes`, `--alias`,
+   `--state-genes`, `--candidate`, `--tissue`, ...) take several values
+   after one flag (`--alias A=B C=D`) or the flag repeated.
 9. **Privacy.** Never put the user's name or email address in requests to
    outside services (some literature APIs, such as Unpaywall, ask for an
    email: skip them or use one the user gave you for that purpose).
@@ -431,6 +434,17 @@ python scripts/map_markers.py --no-blast --target-traits Sorghum \
   `'Glyma\.=>GLYMA_'`) or `--query-rewrite` on the data side (e.g.
   `'_evm=>-evm'`). Rice RAP-DB data: `--id-column alt_id`, or convert with
   `references/annotation/rice_msu_rap.tsv.gz`.
+  *Physcomitrium* data on the v6 annotation (`Pp6c…`) do not share IDs with
+  the v3 hub and tables (`Pp3c…`): search the v6 proteome against the hub
+  (homology mode, not `--no-blast`), and check whether the data write `_`
+  where the proteome writes `-` (or the reverse); fix it with
+  `--query-rewrite`.
+- **Clean the target proteome first.** Keep one (longest) isoform per gene,
+  strip stop characters (`.` or `*`, which DIAMOND rejects inside or at the
+  end of sequences), and make the FASTA IDs match the data's var_names
+  (gene, not transcript, IDs). A few lines of Python (Biopython is not
+  needed) do all three: read the FASTA, map transcript to gene ID, keep the
+  longest sequence per gene, and remove `.`/`*`.
 - **Read the "gene marks several cell types" warning.** Pairs marked `*` are
   subtypes or fragmented names; merge true synonyms through
   `references/markers/celltype_aliases.tsv`, or don't use those genes to
@@ -646,6 +660,14 @@ cell type). For RNA with very uneven depth between clusters, add
 `--depth-key total_counts`. In that mode read O/E, not raw in-vs-out
 fractions. `check_genes.py` takes the same `--depth-key`, and
 `--import-labels` to check genes on published labels.
+
+Marker-score rankings shrink each type's mean by set size (× n/(n+2)), so a
+one-gene type does not outrank a coherent multi-gene type; the score shown
+is unshrunk. The `organellar_DNA` flag also catches nuclear organellar
+insertions (the Arabidopsis chr2 NUMT and organellar-product
+descriptions); `--qc-keys` adds TSS enrichment, FRiP or other QC columns to
+each cluster's QC line. `check_genes.py` matches table symbols written
+`A/B` or `A (B)` and hyphen or prefix variants (HB15 vs ATHB-15).
 
 ### 7. Reason about each cluster
 
@@ -960,14 +982,18 @@ either of these holds:
 - **≥ 60% of its cells carry one published *lineage* label** (Step 3), such
   as a phloem or stomatal lineage whose authors placed the dividing cells
   in it. A published label that is itself a cell-cycle phase (`G1-S`,
-  `G2-M`, `dividing`) is not a lineage and does not count.
+  `G2-M`, `dividing`) or a QC label is not a lineage and does not count. A
+  label you *revised* in Step 3 still counts if the revision keeps the
+  lineage (published "MSE" revised to `Metaphloem_Sieve_Element`).
 - **It sits inside one type's coarse cluster**: at a coarser resolution
   its cells fall in a cluster defined by that type, not in a cycling
   cluster.
 
 A **large cycling population spread across the tissue** (a G1/S or G2/M
 program in many types, often > 5% of cells) stays `Unknown` + State even
-when one type is the majority; do not give it the majority type. Name the
+when one type is the majority; do not give it the majority type, and do
+not type it from a `type_under_state.py` verdict either (the carve-out
+decides). Name the
 reason in Evidence ("lineage carve-out: 72% published MSE"). `apply_annotations.py`
 warns about a typed cycling cluster above 5% of cells, and notes Unknown
 cycling cells that are ≥ 60% one published label (pass the labels with
@@ -1131,8 +1157,15 @@ python scripts/apply_annotations.py --h5ad data.h5ad --annotations CellTypeAnnot
 
 Always produce this after applying, and only after Step 8b. It is the
 deliverable that shows *why* each label holds. Look at it: render pages with
-`pdftoppm -png -r 60 report.pdf page` (poppler; on an HPC cluster load its
-module first, e.g. `module load poppler`) and read the PNGs.
+`pdftoppm -png -r 60 report.pdf page` (poppler) and read the PNGs. On an
+HPC cluster, load its module first, including any prerequisite module
+(e.g. `module load system && module load poppler` on clusters where poppler
+sits under a `system` category), or use your site's poppler module.
+
+For snATAC gene activity, or RNA with very uneven depth, pass the same
+`--assay atac` / `--depth-key` as to `cluster_evidence.py`, so the report
+judges markers by depth-matched O/E and does not contradict the evidence
+files.
 
 ```bash
 python scripts/annotation_report.py --h5ad annotated.h5ad --annotations CellTypeAnnotations.txt \

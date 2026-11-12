@@ -1,0 +1,103 @@
+# Arabidopsis thaliana nuclear loci inside the large mitochondrial insertion (NUMT) near the chromosome 2
+# centromere (Araport11 AT2G07599-AT2G07835, ~620 kb). Unnamed loci and atp8 only; named nuclear genes in the
+# interval (PFD1, ABCC13, ABCI4/5, MCM5) are left out. Reads from mitochondrial DNA map here, so clusters whose
+# top genes are these loci are organellar-DNA artefacts (cluster_evidence.py organellar_DNA flag).
+# Built from references/annotation/araport11_genes.tsv.gz descriptions.
+gene_id	description
+AT2G07599	uncharacterized protein
+AT2G07613	uncharacterized protein
+AT2G07617	uncharacterized protein
+AT2G07621	uncharacterized protein
+AT2G07623	uncharacterized protein
+AT2G07625	uncharacterized protein
+AT2G07626	uncharacterized protein
+AT2G07627	uncharacterized protein
+AT2G07628	uncharacterized protein
+AT2G07629	uncharacterized protein
+AT2G07631	uncharacterized protein
+AT2G07632	uncharacterized protein
+AT2G07633	NADH-plastoquinone oxidoreductase subunit
+AT2G07634	uncharacterized protein
+AT2G07636	uncharacterized protein
+AT2G07637	uncharacterized protein
+AT2G07638	uncharacterized protein
+AT2G07640	NAD(P)-binding Rossmann-fold superfamily protein
+AT2G07641	uncharacterized protein
+AT2G07642	uncharacterized protein
+AT2G07643	uncharacterized protein
+AT2G07644	uncharacterized protein
+AT2G07646	uncharacterized protein
+AT2G07648	uncharacterized protein
+AT2G07652	uncharacterized protein
+AT2G07654	uncharacterized protein
+AT2G07655	uncharacterized protein
+AT2G07656	uncharacterized protein
+AT2G07658	uncharacterized protein
+AT2G07659	uncharacterized protein
+AT2G07661	uncharacterized protein
+AT2G07662	uncharacterized protein
+AT2G07665	uncharacterized protein
+AT2G07667	uncharacterized protein
+AT2G07669	uncharacterized protein
+AT2G07671	ATP synthase subunit C family protein
+AT2G07672	uncharacterized protein
+AT2G07673	uncharacterized protein
+AT2G07674	uncharacterized protein
+AT2G07675	Ribosomal protein S12/S23 family protein
+AT2G07676	uncharacterized protein
+AT2G07678	uncharacterized protein
+AT2G07684	uncharacterized protein
+AT2G07687	Cytochrome c oxidase, subunit III
+AT2G07689	NADH-Ubiquinone/plastoquinone (complex I) protein
+AT2G07691	uncharacterized protein
+AT2G07692	uncharacterized protein
+AT2G07695	Cytochrome C oxidase subunit II-like, transmembrane domain-containing protein
+AT2G07696	Ribosomal protein S7p/S5e family protein
+AT2G07698	ATPase, F1 complex, alpha subunit protein
+AT2G07701	uncharacterized protein
+AT2G07702	uncharacterized protein
+AT2G07705	uncharacterized protein
+AT2G07706	uncharacterized protein
+AT2G07707	Plant mitochondrial ATPase, F0 complex, subunit 8 protein
+AT2G07708	uncharacterized protein
+AT2G07713	uncharacterized protein
+AT2G07714	transcription factor-like protein
+AT2G07715	Nucleic acid-binding, OB-fold-like protein
+AT2G07718	Cytochrome b/b6 protein
+AT2G07719	Putative membrane lipoprotein
+AT2G07721	uncharacterized protein
+AT2G07722	uncharacterized protein
+AT2G07724	uncharacterized protein
+AT2G07725	Ribosomal L5P family protein
+AT2G07727	cytochrome b
+AT2G07728	uncharacterized protein
+AT2G07732	Ribulose bisphosphate carboxylase large chain, catalytic domain-containing protein
+AT2G07734	Alpha-L RNA-binding motif/Ribosomal protein S4 family protein
+AT2G07738	uncharacterized protein
+AT2G07739	Ycf1 protein
+AT2G07741	ATPase, F0 complex, subunit A protein
+AT2G07749	Mitovirus RNA-dependent RNA polymerase
+AT2G07750	DEA(D/H)-box RNA helicase family protein
+AT2G07751	NADH:ubiquinone/plastoquinone oxidoreductase, chain 3 protein
+AT2G07760	Zinc knuckle (CCHC-type) family protein
+AT2G07768	Cytochrome C assembly protein
+AT2G07772	uncharacterized protein
+AT2G07773	cytochrome B/B6 protein
+AT2G07774	uncharacterized protein
+AT2G07775	uncharacterized protein
+AT2G07776	uncharacterized protein
+AT2G07777	ATP synthase 9 mitochondrial
+AT2G07779	uncharacterized protein
+AT2G07785	NADH dehydrogenase family protein
+AT2G07787	uncharacterized protein
+AT2G07795	uncharacterized protein
+AT2G07798	uncharacterized protein
+AT2G07800	uncharacterized protein
+AT2G07806	uncharacterized protein
+AT2G07810	uncharacterized protein
+AT2G07815	LOW protein: cytochrome C biosis ccmF-like protein
+AT2G07820	uncharacterized protein
+AT2G07825	uncharacterized protein
+AT2G07827	uncharacterized protein
+AT2G07830	uncharacterized protein
+AT2G07835	uncharacterized protein

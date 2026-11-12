@@ -210,7 +210,11 @@ QC_LABEL = re.compile(r'(?i)^(low_quality|doublet|unresolved|ambient|exclude|qc_
 ACK_FALLBACK = re.compile(r'intended fallback|fallback row|fallback for', re.I)
 # Evidence wording that justifies typing a cell-cycle cluster (Step 8: clear subdivision or lineage carve-out)
 ACK_CYCLING = re.compile(r'clear subdivision|carve-?out|published lineage|inside the .{0,40}coarse cluster', re.I)
-CELL_CYCLE = re.compile(r's_?phase|g2_?m|g1_?s|cell_?cycle|cycling|mitot|dividing|prolif|endoredup', re.I)
+CELL_CYCLE = re.compile(r's[ _-]?phase|g2[ _/-]?m|g1[ _/-]?s|cell[ _-]?cycle|cycling|mitot|dividing|prolif|endoredup',
+                        re.I)
+# Published labels that are not lineages (QC, rejected, unassigned): never a basis for the lineage carve-out
+NON_LINEAGE = re.compile(r'(?i)^(qc|low[ _-]?q|doublet|unknown|unassigned|unannotated|unclassified|na|none|nan|'
+                         r'rejected|filtered|removed|ambient|other|mixed)\b')
 # State names that describe a tested process. Anything else (e.g. '<gene>_<gene>_program') looks like an unexplained
 # private program, which belongs in CellType as Unknown_<program>, not as a state on the majority type.
 KNOWN_STATE = re.compile(r's_?phase|g2_?m|g1|cycl|mitot|divid|endored|stress|respon|heat|cold|chill|drought|osmot|salt|'
@@ -430,7 +434,9 @@ def apply(adata, ann, out_key, unknown, label_keys=()):
     adata.obs[sk_] = pd.Categorical(src)
     if (cf != '').any():
         ck = confidence_key(out_key)
-        typed = (lab != unknown) & ~pd.Series(lab).astype(str).str.match(QC_LABEL).to_numpy()
+        lab_s = pd.Series(lab).astype(str)
+        typed = (lab != unknown) & ~lab_s.str.match(QC_LABEL).to_numpy() \
+            & ~lab_s.str.lower().str.startswith('unknown').to_numpy()
         cf[cf == ''] = 'none'
         adata.obs[ck] = pd.Categorical(cf, categories=CONF_LEVELS + ['none'])
         print(f'  analyst confidence in obs["{ck}"]:')
@@ -514,11 +520,16 @@ def check_labels(log, adata, out_key, numeric_keys, unknown, label_keys=()):
                   'cycling cluster\'s own resolution and on the UMAP, and carries its markers) or the lineage '
                   'carve-out applies (>= 60% one published lineage, or inside that type\'s coarse cluster); say '
                   'which in Evidence (SKILL.md Step 8).')
-        if n_g > 0.05 * n_all and not str(g['cell_type'].iloc[0]).lower().startswith('unknown'):
-            print(f'  WARN cell-cycle cluster {k}={cl} is typed ({", ".join(sorted(set(g["cell_type"].astype(str))))}) '
-                  f'and holds {n_g / n_all:.0%} of all cells. A large cycling population spread across the tissue '
+    # per row: the cells a row actually typed (after Within and earlier rows), unless Evidence names the carve-out
+    for r in cyc_all.itertuples():
+        ct = str(r.cell_type)
+        if ct.lower().startswith('unknown') or ACK_CYCLING.search(str(getattr(r, 'evidence', '') or '')):
+            continue
+        if int(r.n_new) > 0.05 * n_all:
+            print(f'  WARN line {r.line}: cell-cycle row {r.obs_key}={r.cluster} types {int(r.n_new):,} cells '
+                  f'({int(r.n_new) / n_all:.0%} of all) as {ct}. A large cycling population spread across the tissue '
                   '(e.g. a tissue-wide G1/S program) stays Unknown + State even when one type is the majority; type it '
-                  'only through the lineage carve-out (SKILL.md Step 8).')
+                  'only through the lineage carve-out, and name it in Evidence (SKILL.md Step 8).')
     # Unknown + cell-cycle cells that are mostly one published lineage: the carve-out may apply
     sk_ = state_key(out_key)
     if label_keys and sk_ in adata.obs.columns:
@@ -528,8 +539,9 @@ def check_labels(log, adata, out_key, numeric_keys, unknown, label_keys=()):
         for tag, idx in o.index[unk_cyc].groupby(o.loc[unk_cyc, src_k].astype(str)).items():
             if len(idx) < 50:
                 continue
+            row_key = resolve_key(tag.split('@')[0].split(':', 1)[0], set(o.columns))
             for lk in label_keys:
-                if lk not in o.columns:
+                if lk not in o.columns or lk == row_key:  # a row keyed on the label column is trivially 100%
                     continue
                 vc = o.loc[idx, lk].astype(str)
                 vc = vc[~vc.isin(['nan', 'None', '', 'NA'])].value_counts()
@@ -537,7 +549,7 @@ def check_labels(log, adata, out_key, numeric_keys, unknown, label_keys=()):
                     continue
                 top, sh = vc.index[0], vc.iloc[0] / vc.sum()
                 if sh >= 0.6 and not CELL_CYCLE.search(top) and not QC_LABEL.match(top) \
-                        and not top.lower().startswith(('unknown', 'unassigned', 'na_')):
+                        and not NON_LINEAGE.match(top.strip()):
                     print(f'  NOTE {tag}: {len(idx):,} Unknown cycling cells are {sh:.0%} {lk} "{top}". '
                           'If that label is a lineage (not a whole-tissue program), the lineage carve-out applies: '
                           f'type them as the matching type + State (SKILL.md Step 8).')
@@ -671,7 +683,7 @@ def main():
     out.add_argument('--no-write', action='store_true', help='only produce logs/plots')
     p.add_argument('--colors', default=None, help='CellType<TAB>Color table')
     p.add_argument('--markers', nargs='+', default=None, help='marker table(s) for the validation dotplot')
-    p.add_argument('--import-labels', action='append', default=[],
+    p.add_argument('--import-labels', nargs='+', action='extend', default=[],
                    help='path:col[:new_name] (repeatable); path is an .h5ad (e.g. subcluster '
                         'labels) or a barcode-indexed .csv/.tsv (e.g. published labels)')
     p.add_argument('--key', default='cell_type', help='obs column to write')

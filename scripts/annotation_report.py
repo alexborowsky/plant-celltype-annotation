@@ -82,7 +82,8 @@ _pdf_palette_workaround()
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cluster_evidence import (expression_source, gene_matrix, load_markers, natural_key)  # noqa: E402
+from cluster_evidence import (DEPTH_CANDIDATES, depth_bins, depth_expected, expression_source,  # noqa: E402
+                              gene_matrix, load_markers, natural_key, oe_ratio, pick)
 from check_genes import (GeneResolver, clean, find_ref_annotation, name_tokens, ref_key,  # noqa: E402
                          SKILL_DIR)
 from apply_annotations import (parse_annotations, resolve_key, semantic_color,  # noqa: E402
@@ -181,7 +182,15 @@ def plot_violins(ax, v, labels, highlight, max_cells, rng):
     fracs = [(d > 0).mean() for d in data]
     ax.scatter(np.arange(1, len(groups) + 1), [np.mean(d) for d in data], s=6, c='black', zorder=3)
     ax.set_xticks(np.arange(1, len(groups) + 1))
-    ax.set_xticklabels(groups, fontsize=6, rotation=90 if len(groups) > 12 else 0)
+    # Long category names (published labels) overlap when horizontal: shorten very long ones and rotate
+    # whenever the names would not fit side by side (~40 characters across a panel at 6 pt)
+    ticks = [g if len(g) <= 18 else g[:16] + '..' for g in groups]
+    if len(groups) > 12 or sum(len(t) + 1 for t in ticks) > 40:
+        ax.set_xticklabels(ticks, fontsize=6, rotation=90 if len(groups) > 12 else 45,
+                           ha='center' if len(groups) > 12 else 'right', rotation_mode='anchor'
+                           if len(groups) <= 12 else 'default')
+    else:
+        ax.set_xticklabels(ticks, fontsize=6)
     for t, g in zip(ax.get_xticklabels(), groups):
         if g in highlight:
             t.set_color(HIGHLIGHT)
@@ -320,8 +329,20 @@ def skill_version():
         return 'unknown'
 
 
-def marker_stats(M, found, mask):
-    """Per-gene mean/frac inside vs outside mask."""
+# Depth mode (--depth-key / --assay atac): frac_out is the fraction expected at the type's own depth
+# distribution (cluster_evidence.depth_expected), frac_out_raw the plain outside fraction, oe = O/E.
+DEPTH_MIN_GAP = 0.05    # depth mode: min detection gap over the depth-matched expectation
+
+
+def vs_text(fi, fo, oe=None, pct='.0%'):
+    """'12% vs 3%' (in vs out), or in depth mode '12% vs 3% exp, O/E 3.3'."""
+    if oe is None or not np.isfinite(oe):
+        return f"{fi:{pct}} vs {fo:{pct}}"
+    return f"{fi:{pct}} vs {fo:{pct}} exp, O/E {oe:.1f}"
+
+
+def marker_stats(M, found, mask, depth=None):
+    """Per-gene mean/frac inside vs outside mask; with depth (DepthBins) frac_out is depth-matched."""
     def mean_frac(A):
         if sparse.issparse(A):
             mean = np.asarray(A.mean(0)).ravel()
@@ -331,7 +352,13 @@ def marker_stats(M, found, mask):
         return mean, frac
     mi, fi = mean_frac(M[mask])
     mo, fo = mean_frac(M[~mask])
-    return pd.DataFrame({'gene_id': found, 'mean_in': mi, 'mean_out': mo, 'frac_in': fi, 'frac_out': fo})
+    df = pd.DataFrame({'gene_id': found, 'mean_in': mi, 'mean_out': mo, 'frac_in': fi, 'frac_out': fo})
+    if depth is not None:
+        exp = depth_expected(M, np.where(mask, 'in', 'out'), depth, ['in', 'out'])[0]
+        df['frac_out_raw'] = fo
+        df['frac_out'] = np.nan_to_num(exp, nan=0.0)
+        df['oe'] = oe_ratio(fi, exp)
+    return df
 
 
 def load_celltype_aliases(path):
@@ -391,7 +418,7 @@ def specificity(fi, fo, delta):
     return np.maximum(det, lvl)
 
 
-def select_markers(cand, stats, n_max, min_delta, min_frac_ratio, min_detect=0.10):
+def select_markers(cand, stats, n_max, min_delta, min_frac_ratio, min_detect=0.10, depth=False):
     """-> (shown, not_enriched, below_floor, all_rows).
 
     shown: enriched markers detected in >= min_detect of the type, ranked by specificity
@@ -405,10 +432,16 @@ def select_markers(cand, stats, n_max, min_delta, min_frac_ratio, min_detect=0.1
         return empty, empty, empty, empty
     c['delta'] = c['mean_in'] - c['mean_out']
     c['ratio'] = c['frac_in'] / np.maximum(c['frac_out'], 0.001)
+    if depth:
+        # Depth mode: detection against the depth-matched expectation only. Mean gaps are depth-confounded
+        # (deeper cells have more of every gene), so the mean-based and level routes are off.
+        c['delta'] = 0.0
+        c['ratio'] = c['oe']
     # Routes to "enriched": a clear expression gap, or a strong detection ratio for sparsely
     # captured regulators/channels (tomato guard cells: FAMA 12% vs 0.0%, SLAC1 3.6% vs 0.0%;
     # mean gaps only 0.06-0.18). The detection floor keeps noise-level genes out.
     c['enriched'] = (((c['delta'] >= min_delta) & (c['ratio'] >= min_frac_ratio))
+                     | (depth & (c['ratio'] >= min_frac_ratio) & (c['frac_in'] - c['frac_out'] >= DEPTH_MIN_GAP))
                      | ((c['ratio'] >= SPARSE_RATIO) & (c['frac_in'] >= SPARSE_MIN_FRAC))
                      # Third route: abundant genes detected in most nuclei everywhere (ambient-rich nuclei data),
                      # enriched by level only (an inulin enzyme in 94% vs 70% of nuclei, mean 3.5 vs 2.0).
@@ -511,7 +544,7 @@ def other_copies(allc, sym, g, n=4):
     o = allc[(allc['symbol'] == sym) & (allc['gene_id'] != g)].drop_duplicates('gene_id')
     if o.empty:
         return ''
-    items = [f"{r.gene_id} ({r.frac_in:.0%} vs {r.frac_out:.0%})" for r in o.head(n).itertuples()]
+    items = [f"{r.gene_id} ({vs_text(r.frac_in, r.frac_out, getattr(r, 'oe', None))})" for r in o.head(n).itertuples()]
     return ', '.join(items) + (f", +{len(o) - n} more" if len(o) > n else '')
 
 
@@ -674,15 +707,15 @@ def main():
                    help='reference-species gene_id, symbol table(s) to resolve --extra-genes symbols '
                         '(default: a shipped Araport11 table if present)')
     p.add_argument('--colors', default=None, help='CellType<TAB>Color table')
-    p.add_argument('--alias', action='append', default=[],
-                   help='AnnotatedType=MarkerType1,MarkerType2 (repeatable): marker cell types to use '
+    p.add_argument('--alias', nargs='+', action='extend', default=[],
+                   help='AnnotatedType=MarkerType1,MarkerType2 (several after one flag, or repeat the flag): marker cell types to use '
                         'for a differently named annotation, e.g. Procambium_Dividing=Procambium,Dividing_cells')
     p.add_argument('--celltype-aliases', default=os.path.join(SKILL_DIR, 'references', 'markers',
                                                               'celltype_aliases.tsv'),
                    help='alias table (alias, canonical, note); names with the same canonical name count as '
                         'the same type. Used if present; "" to disable')
-    p.add_argument('--extra-genes', action='append', default=[],
-                   help='CellType=GENE1,GENE2 (repeatable): genes a call rests on that are not in the marker '
+    p.add_argument('--extra-genes', nargs='+', action='extend', default=[],
+                   help='CellType=GENE1,GENE2 (several after one flag, or repeat the flag): genes a call rests on that are not in the marker '
                         'tables (DE or hypothesis genes); target IDs or symbols resolved through the gene '
                         'map / annotation / marker tables. Shown as "extra (not in marker tables)"')
     p.add_argument('--max-extra', type=int, default=4, help='max extra genes shown per cell type')
@@ -705,13 +738,22 @@ def main():
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--state-key', default=None,
                    help="obs column with cell states (default: cell_state for --key cell_type, else <key>_state)")
-    p.add_argument('--state-genes', action='append', default=[],
+    p.add_argument('--state-genes', nargs='+', action='extend', default=[],
                    help='STATE=GENE1,GENE2: genes a state call rests on (symbols or IDs, resolved like '
-                        '--extra-genes); shown on the state page before data-driven genes. Repeatable')
+                        '--extra-genes); shown on the state page before data-driven genes. Several after one '
+                        'flag, or repeat the flag')
     p.add_argument('--max-state-genes', type=int, default=3, help='gene panels per state page')
     p.add_argument('--composition-keys', nargs='*', default=None,
                    help='obs columns for state composition (default: sample/batch/treatment/condition/'
                         'genotype/replicate/timepoint columns that exist)')
+    p.add_argument('--assay', choices=['rna', 'atac'], default='rna',
+                   help='atac: judge markers by depth-matched O/E (as cluster_evidence.py --assay atac); the depth '
+                        'key defaults to the first of ' + ', '.join(DEPTH_CANDIDATES) + ' present')
+    p.add_argument('--depth-key', default=None,
+                   help='obs column with per-cell depth: a marker is enriched by its detection against the '
+                        'fraction expected at the type\'s own depth (O/E), not raw in-vs-out. Off for rna unless '
+                        'given; "none" turns it off for atac')
+    p.add_argument('--depth-bins', type=int, default=20, help='depth quantile bins for --depth-key')
     args = p.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -727,6 +769,20 @@ def main():
     size = max(0.3, min(4.0, 60000 / adata.n_obs))
     X, var_names, src = expression_source(adata, args.layer, args.use_raw)
     print(f'  {adata.n_obs:,} cells; expression from {src}')
+    depth_key = args.depth_key
+    if depth_key and depth_key.lower() == 'none':
+        depth_key = None
+    elif depth_key is None and args.assay == 'atac':
+        depth_key = pick(adata.obs, DEPTH_CANDIDATES)
+        if depth_key is None:
+            print('  WARN --assay atac: no depth column (' + ', '.join(DEPTH_CANDIDATES) + '); raw in-vs-out used')
+    dbins = None
+    if depth_key:
+        if depth_key not in adata.obs.columns:
+            sys.exit(f'--depth-key {depth_key} not in obs')
+        dbins = depth_bins(adata.obs[depth_key].to_numpy(), args.depth_bins)
+        print(f'  depth-matched O/E on {depth_key!r} ({dbins.n} quantile bins): markers are judged against the '
+              'fraction expected at each type\'s depth')
 
     ann = parse_annotations(args.annotations)
     ann['obs_key'] = [resolve_key(s, set(adata.obs.columns)) for s in ann['key_spec']]
@@ -843,10 +899,10 @@ def main():
             n = int((mask & np.isin(kl, cls)).sum())
             if n > best_n:
                 best_key, best_n, clusters = k, n, cls
-        stats = marker_stats(Mk, mk_found, mask) if mk_found else pd.DataFrame(columns=['gene_id'])
+        stats = marker_stats(Mk, mk_found, mask, dbins) if mk_found else pd.DataFrame(columns=['gene_id'])
         shown, not_enriched, below, allc = select_markers(
             candidate_markers(markers, ct, aliases, ct_aliases), stats, args.max_markers,
-            args.min_delta, args.min_frac_ratio, args.min_detect)
+            args.min_delta, args.min_frac_ratio, args.min_detect, depth=dbins is not None)
         # Extra genes: best copy (by specificity in this type) of each term, others listed
         extras = []
         st = stats.set_index('gene_id') if len(stats) else None
@@ -856,11 +912,13 @@ def main():
             if not cs:
                 continue
             sp = [float(specificity(st.at[d['gene_id'], 'frac_in'], st.at[d['gene_id'], 'frac_out'],
+                                    0.0 if dbins is not None else
                                     st.at[d['gene_id'], 'mean_in'] - st.at[d['gene_id'], 'mean_out']))
                   for d in cs]
             order = np.argsort(sp)[::-1]
             best = cs[order[0]]
-            others = [(cs[i]['gene_id'], st.at[cs[i]['gene_id'], 'frac_in'], st.at[cs[i]['gene_id'], 'frac_out'])
+            others = [(cs[i]['gene_id'], st.at[cs[i]['gene_id'], 'frac_in'], st.at[cs[i]['gene_id'], 'frac_out'],
+                       st.at[cs[i]['gene_id'], 'oe'] if 'oe' in st.columns else None)
                       for i in order[1:]]
             extras.append(dict(term=t, copy=best, others=others))
         if len(extras) > args.max_extra:
@@ -989,6 +1047,9 @@ def main():
         sub = (f'{adata.n_obs:,} cells; annotation table {os.path.basename(args.annotations)}; '
                f'markers {", ".join(os.path.basename(m) for m in args.markers)}; '
                f'plant-celltype-annotation v{skill_version()}')
+        if dbins is not None:
+            sub += (f'; depth-matched on {depth_key}: "x% vs y% exp" = detected here vs expected at this type\'s '
+                    'depth, O/E = their ratio')
         fig.text(0.06, 0.958, '\n'.join(textwrap.wrap(sub, 150)), fontsize=7, va='top')
         axt = fig.add_subplot(gs[1])
         axt.axis('off')
@@ -998,7 +1059,7 @@ def main():
             if len(sh):
                 r0 = sh.iloc[0]
                 best = (f"{r0['symbol']} ({r0['evidence'] or 'no tier'}, {r0['confidence'] or '-'}; "
-                        f"{r0['frac_in']:.0%} vs {r0['frac_out']:.0%})"
+                        f"{vs_text(r0['frac_in'], r0['frac_out'], r0.get('oe'))})"
                         + (' <floor' if r0['below_floor'] else ''))
             elif pl['extras']:
                 d = pl['extras'][0]
@@ -1135,8 +1196,13 @@ def main():
                 vc = vc[vc.index != 'none']
                 if len(vc):
                     st_text = '; states: ' + ', '.join(f'{k} {v / mask.sum():.0%}' for k, v in vc.head(4).items())
-            fig.text(0.05, 0.948, f"{mask.sum():,} cells ({mask.mean():.1%})"
-                     + (f"; defined at {key}, cluster(s) {', '.join(clusters)}" if key else '') + st_text, fontsize=8)
+            cl_txt = ', '.join(clusters[:12]) + (f', ... ({len(clusters) - 12} more)' if len(clusters) > 12 else '')
+            sub_ct = (f"{mask.sum():,} cells ({mask.mean():.1%})"
+                      + (f"; defined at {key}, cluster(s) {cl_txt}" if key else '') + st_text)
+            # one line at 8 pt holds ~130 characters on this page; longer text drops to 7 pt and is cut
+            if len(sub_ct) > 130:
+                sub_ct = textwrap.shorten(sub_ct, 150, placeholder=' ...')
+            fig.text(0.05, 0.948, sub_ct, fontsize=8 if len(sub_ct) <= 130 else 7)
             cf_ = conf[ct]
             t0 = fig.text(0.05, 0.934, f"Confidence: {cf_['overall']}", fontsize=8, fontweight='bold', va='top',
                           color=CONF_COLOR.get(cf_['overall'], 'black'))
@@ -1170,7 +1236,7 @@ def main():
             if len(bl):
                 lines.append(f"**Enriched but detected in <{args.min_detect:.0%} of these cells (not ranked)")
                 items = [f"{r.symbol} ({r.evidence or 'no tier'}, {r.confidence or '-'}; "
-                         f"{r.frac_in:.0%} vs {r.frac_out:.0%})" for r in bl.itertuples()]
+                         f"{vs_text(r.frac_in, r.frac_out, getattr(r, 'oe', None))})" for r in bl.itertuples()]
                 lines.append(', '.join(items[:8]) + (f", and {len(items) - 8} more" if len(items) > 8 else ''))
             ne = pl['not_enriched']
             if len(ne):
@@ -1199,6 +1265,11 @@ def main():
                 spec = float(specificity(fin, fout, min_ - mout))
                 indata = (f"In data: detected in {fin:.1%} of cells vs {fout:.1%} elsewhere "
                           f"({fin / max(fout, 0.001):.0f}x); mean {min_:.2f} vs {mout:.2f}; specificity {spec:.2f}")
+                stp = pl['stats']
+                if dbins is not None and stp is not None and g in stp.index and 'oe' in stp.columns:
+                    fe, oe = stp.at[g, 'frac_out'], stp.at[g, 'oe']
+                    indata = (f"In data: detected in {fin:.1%} of cells vs {fe:.1%} expected at matched depth "
+                              f"(O/E {oe:.1f}; {fout:.1%} raw elsewhere); mean {min_:.2f} vs {mout:.2f}")
                 if kind == 'marker':
                     r = item
                     sym = r['symbol']
@@ -1227,8 +1298,8 @@ def main():
                           f"Resolved from '{item['term']}': {d['route']}",
                           f"Homolog: {gene_desc(g, res) or 'none'}", indata]
                     if item['others']:
-                        tl.append('Other copies: ' + ', '.join(f"{o} ({fi:.0%} vs {fo:.0%})"
-                                                               for o, fi, fo in item['others'][:4]))
+                        tl.append('Other copies: ' + ', '.join(f"{o} ({vs_text(fi, fo, oe)})"
+                                                               for o, fi, fo, oe in item['others'][:4]))
                 else:
                     sym = target_symbol(g, res) or g
                     tl = [f"**{g}", f"Homolog: {gene_desc(g, res) or 'none'}",
@@ -1365,6 +1436,9 @@ def main():
                 dp = sc.pl.dotplot(small, groups, groupby=args.key, standard_scale='var', cmap='viridis',
                                    use_raw=False, show=False, return_fig=True)
                 dp.make_figure()
+                if dbins is not None:
+                    plt.gcf().text(0.0, -0.02, f'Dot size and colour are raw (not depth-matched); markers were '
+                                   f'chosen by O/E at matched depth ({depth_key}).', fontsize=7, ha='left', va='top')
                 pdf.savefig(plt.gcf(), bbox_inches='tight')
             except Exception as e:  # the report must not die on the summary plot
                 print(f'  WARN dotplot failed: {e}')

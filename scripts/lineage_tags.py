@@ -25,6 +25,7 @@ bryophyte (liverwort, moss, hornwort), lycophyte, fern, gymnosperm (conifer); an
                                                            microspores, pith
   eudicot      monocot,gymnosperm,bryophyte,lycophyte,fern palisade/spongy mesophyll, adaxial/abaxial epidermis, and
                                                            GL1/GL2/TTG1/TTG2/WRKY44 rows (eudicot-species tables only)
+  requires=liverwort  liverwort-only structures (gemma, notch, air pores, ventral scales) from Marchantia rows
   +monocot     cambium/periderm/ray rows (secondary growth) from non-monocot species also exclude monocot
   requires=Brassicaceae  Arabidopsis SULTR2;1 / SULTR2;2 rows (their XP vs BS split does not transfer;
                          see plant_pitfalls.md)
@@ -137,6 +138,11 @@ GROUPS = [
 # exclude monocot.
 SECONDARY_GROWTH = re.compile(r'(?<!pro)cambium|phellem|phellogen|phelloderm|periderm|(^|_)cork|lenticel|'
                               r'ray_parenchyma|xylem_mother', re.I)
+# Liverwort-only structures (Marchantia): gemmae and gemma cups, the apical notch, air pores/dorsal epidermis,
+# ventral scales, mucilage papillae, oil bodies. Rows from liverwort species get requires=liverwort.
+LIVERWORT_TYPES = re.compile(r'gemma|notch|air_pore|dorsal_epiderm|ventral_scale|mucilage_papilla|oil_body|'
+                             r'assimilatory_filament|pegged_rhizoid', re.I)
+LIVERWORT_SPECIES = ('marchantia', 'liverwort', 'riccia', 'lunularia')
 MONOCOT_SPECIES = ('rice', 'oryza', 'maize', 'zea', 'sorghum', 'wheat', 'triticum', 'barley', 'hordeum', 'setaria',
                    'millet', 'brachypodium', 'bamboo', 'phyllostachys', 'sugarcane', 'saccharum', 'grass', 'banana',
                    'musa', 'onion', 'allium', 'asparagus', 'orchid', 'pineapple', 'palm', 'lemna', 'spirodela',
@@ -183,7 +189,7 @@ def group_of(cell_type):
 
 def tag_table(df):
     n = {'angiosperm': 0, 'seed_plant': 0, 'tracheophyte': 0, 'eudicot_only': 0, 'SULTR2_Brassicaceae': 0,
-         'secondary_growth_monocot': 0}
+         'secondary_growth_monocot': 0, 'liverwort_only': 0}
     for c in ('requires', 'excludes'):
         if c not in df.columns:
             df[c] = ''
@@ -192,6 +198,9 @@ def tag_table(df):
         ct = str(r.get('cell_type', ''))
         sym = str(r.get('symbol', '')).upper()
         req, exc = str(r['requires']), str(r['excludes'])
+        if sp.startswith(LIVERWORT_SPECIES) and LIVERWORT_TYPES.search(ct) and 'liverwort' not in tags(req):
+            df.at[i, 'requires'] = add(req, 'liverwort'); n['liverwort_only'] += 1
+            continue
         if sp in BRYO_SPECIES or species_lineage(sp) == 'bryophyte':
             continue
         sp_lin = species_lineage(sp)

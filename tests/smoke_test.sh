@@ -290,9 +290,122 @@ print(f'PASS: gene activity ({m.sum()}/{len(m)} measurable; peaks vs fragments m
       f'subcluster --lsi ({s.obs["leiden_sub_0.3"].nunique()} subclusters)')
 EOF
 
+step "7l evidence ranking, NUMT, symbols"
+python - <<'EOF'
+# Cluster B: four coherent markers of TypeMulti (70% vs 10%) and one strong gene of TypeSingle (90% vs 2%).
+# Cluster C: top genes are Arabidopsis chr2 NUMT loci (nuclear IDs). obs frip_x is an extra QC column.
+import numpy as np, pandas as pd, anndata as ad, scanpy as sc
+rng = np.random.default_rng(2)
+cl = np.repeat(['A', 'B', 'C'], 300)
+numt = ['AT2G07633', 'AT2G07671', 'AT2G07687', 'AT2G07689', 'AT2G07695', 'AT2G07698', 'AT2G07707', 'AT2G07718',
+        'AT2G07727', 'AT2G07739', 'AT2G07741', 'AT2G07751']
+genes = ['m1', 'm2', 'm3', 'm4', 's1'] + numt + [f'g{i}' for i in range(200)]
+p = np.full((len(cl), len(genes)), 0.1)
+p[:, 4] = 0.02
+p[cl == 'B', 0:4] = 0.7
+p[cl == 'B', 4] = 0.9
+p[cl == 'C', 5:17] = 0.95
+X = (rng.random(p.shape) < p).astype(np.float32)
+a = ad.AnnData(X=X, obs=pd.DataFrame({'clu': cl, 'total_counts': X.sum(1) * 50 + 1000, 'sample': 's1',
+                                      'frip_x': np.where(cl == 'C', 0.2, 0.6)},
+                                     index=[f'r{i}' for i in range(len(cl))]), var=pd.DataFrame(index=genes))
+sc.pp.normalize_total(a, target_sum=1e4); sc.pp.log1p(a)
+a.obs['clu'] = a.obs['clu'].astype('category')
+a.write_h5ad('rank_test.h5ad')
+pd.DataFrame({'gene_id': ['m1', 'm2', 'm3', 'm4', 's1'], 'symbol': ['M1', 'M2', 'M3', 'M4', 'S1'],
+              'cell_type': ['TypeMulti'] * 4 + ['TypeSingle'], 'evidence': ['expression'] * 5}).to_csv(
+    'rank_markers.tsv', sep='\t', index=False)
+half = a.obs_names[cl == 'B']
+pd.DataFrame({'barcode': half, 'sub': np.where(np.arange(len(half)) % 2, 'b1', 'b2')}).to_csv(
+    'rank_sub.tsv', sep='\t', index=False)
+pd.DataFrame({'barcode': a.obs_names, 'lab': 'L' + a.obs['clu'].astype(str)}).to_csv(
+    'rank_labels.tsv', sep='\t', index=False)
+EOF
+python "$S/cluster_evidence.py" --h5ad rank_test.h5ad --output evidence_rank --assay atac --depth-key total_counts \
+    --markers rank_markers.tsv --cluster-keys clu pubA pubB --skip-plots --qc-keys frip_x \
+    --import-labels rank_labels.tsv:lab:pubA rank_labels.tsv:lab:pubB > evidence_rank.log
+grep -q "imported lab from rank_labels.tsv as pubB" evidence_rank.log && echo "PASS: --import-labels takes several values"
+python - <<'EOF'
+import re, pandas as pd
+md = open('evidence_rank/cluster_evidence_clu.md').read()
+sec = {m.group(1): m.group(2) for m in re.finditer(r'## clu cluster (\w+):(.*?)(?=\n## |\Z)', md, re.S)}
+top_b = re.search(r'Marker scores\*\*: (\w+) oe', sec['B']).group(1)
+sc_ = pd.read_csv('evidence_rank/marker_score_details_clu.tsv', sep='\t', dtype={'cluster': str})
+b = sc_[sc_.cluster == 'B'].set_index('cell_type')
+print(f"B: TypeSingle oe {b.at['TypeSingle', 'score_oe']:.2f} (rank {b.at['TypeSingle', 'rank_score_oe']:.2f}), "
+      f"TypeMulti oe {b.at['TypeMulti', 'score_oe']:.2f} (rank {b.at['TypeMulti', 'rank_score_oe']:.2f}); top {top_b}")
+assert b.at['TypeSingle', 'score_oe'] > b.at['TypeMulti', 'score_oe'], 'test setup: single gene should have higher mean'
+assert top_b == 'TypeMulti', 'one-gene type still outranks the multi-gene type'
+assert 'organellar_DNA' in sec['C'] and 'organellar_DNA' not in sec['A'], 'NUMT loci not flagged'
+assert 'frip_x' in sec['A'], '--qc-keys column not shown'
+print('PASS: set-size ranking, NUMT organellar flag, --qc-keys')
+EOF
+python - <<EOF
+import sys, re, numpy as np, pandas as pd; sys.path.insert(0, '$S')
+from cluster_evidence import organelle_mask, ORGANELLE_DESC
+import anndata as ad
+a = ad.AnnData(np.zeros((2, 3), np.float32), var=pd.DataFrame(index=['x1', 'x2', 'x3']))
+ann = pd.DataFrame({'symbol': ['', '', 'RBCS'], 'description': ['Ycf1 protein', 'cytochrome c oxidase subunit II',
+                    'Rubisco small subunit']}, index=['x1', 'x2', 'x3'])
+m = organelle_mask(['x1', 'x2', 'x3'], a, None, re.compile(r'^ATCG'), ann=ann, numt=set())
+assert list(m) == [True, True, False], m
+print('PASS: organellar-product descriptions')
+EOF
+printf 'gene_id\tsymbol\tdescription\taliases\nAT1G00011\tPEAR1/DOF2.4\tx\t\nAT1G00012\tKNOLLE (SYP111)\tx\t\nAT1G00013\tATHB-15\tx\tCNA\nAT1G00014\tCYCB1;1\tx\t\n' > sym_ref.tsv
+printf 'query_gene\tref_gene\thit_rank\tpident\tref_symbol\tref_description\trbh\nm1\tAT1G00011\t1\t80\t\t\tyes\nm2\tAT1G00012\t1\t80\t\t\tyes\nm3\tAT1G00013\t1\t80\t\t\tyes\nm4\tAT1G00014\t1\t80\t\t\tyes\n' > sym_map.tsv
+python "$S/check_genes.py" --h5ad rank_test.h5ad --cluster-key clu --genes PEAR1 DOF2.4 SYP111 HB15 'CYCB1;1' \
+    --gene-map sym_map.tsv --ref-annotation sym_ref.tsv > sym.log
+for q in "PEAR1 | m1" "DOF2.4 | m1" "SYP111 | m2" "HB15 | m3" "CYCB1;1 | m4"; do
+  grep -q "| $q" sym.log || { echo "FAIL symbol $q"; grep -n "PEAR1\|SYP111\|HB15\|CYCB" sym.log | head; exit 1; }
+done
+echo "PASS: A/B, A (B), hyphen/prefix-normalised and ';' symbols"
+python "$S/check_genes.py" --h5ad rank_test.h5ad --cluster-key sub --import-labels rank_sub.tsv:sub \
+    --genes m1 --depth-key total_counts --out checks/sub.tsv > sub.log
+python - <<'EOF'
+import pandas as pd
+t = pd.read_csv('checks/sub.tsv', sep='\t', dtype={'cluster': str})
+e = t[t.gene_id == 'm1'].set_index('cluster')
+print(f"subset key: m1 in b1 frac {e.at['b1', 'frac']:.2f}, exp {e.at['b1', 'frac_exp']:.2f}, O/E {e.at['b1', 'oe']:.1f}")
+assert e.at['b1', 'frac_exp'] < 0.4, 'expectation not taken from all other cells'
+print('PASS: subset key uses all other cells for the expectation')
+EOF
+
 step "7j. cycling carve-out warnings and short-row warning (apply_annotations)"
 python "$SKILL/tests/test_apply_cycling.py" "$OUT/carve" > "$OUT/carve.log" 2>&1 || { tail -40 "$OUT/carve.log"; echo "FAIL 7j"; exit 1; }
 grep -E "PASS|FAIL" "$OUT/carve.log"
+
+step "7k report depth mode: annotation_report.py --assay atac judges markers by depth-matched O/E"
+python - <<'PYEOF'
+# depth_test.h5ad (step 7g): cluster D is 4x deeper; g_depth (marker DEP for TypeD) has no real preference,
+# g_true (TRUE for TypeB) marks B. Raw in-vs-out credits DEP in TypeD; depth-matched O/E must not.
+import numpy as np, pandas as pd, scanpy as sc
+a = sc.read_h5ad('depth_test.h5ad')
+a.obsm['X_umap'] = np.random.default_rng(0).normal(size=(a.n_obs, 2)) + \
+    np.c_[a.obs['clu'].cat.codes.to_numpy() * 4, np.zeros(a.n_obs)]
+a.obs['ct'] = a.obs['clu'].map({'A': 'TypeA', 'B': 'TypeB', 'C': 'TypeC', 'D': 'TypeD'}).astype('category')
+a.write_h5ad('depth_report.h5ad')
+pd.DataFrame({'Resolution': ['ct'] * 4, 'Cluster': ['TypeA', 'TypeB', 'TypeC', 'TypeD'],
+              'CellType': ['TypeA', 'TypeB', 'TypeC', 'TypeD'], 'Confidence': ['medium'] * 4,
+              'Evidence': ['test'] * 4}).to_csv('depth_ann.txt', sep='\t', index=False)
+PYEOF
+python "$S/annotation_report.py" --h5ad depth_report.h5ad --key ct --annotations depth_ann.txt \
+    --markers depth_markers.tsv --output annotation_qc/report_depth_raw.pdf > report_depth_raw.log 2>&1 \
+    || { tail -20 report_depth_raw.log; echo "FAIL 7k (raw)"; exit 1; }
+python "$S/annotation_report.py" --h5ad depth_report.h5ad --key ct --annotations depth_ann.txt \
+    --markers depth_markers.tsv --assay atac --extra-genes TypeB=g_true TypeD=g_depth \
+    --output annotation_qc/report_depth.pdf > report_depth.log 2>&1 || { tail -20 report_depth.log; echo "FAIL 7k"; exit 1; }
+grep -q "depth-matched O/E on 'total_counts'" report_depth.log || { tail -20 report_depth.log; echo "FAIL 7k: no depth mode"; exit 1; }
+python - <<'PYEOF'
+import pandas as pd
+raw = pd.read_csv('annotation_qc/report_depth_raw_confidence.tsv', sep='\t', index_col=0)
+dep = pd.read_csv('annotation_qc/report_depth_confidence.tsv', sep='\t', index_col=0)
+print(dep.to_string())
+why = lambda t, ct: ' '.join(str(x) for x in t.loc[ct].values)
+assert 'DEP' in why(raw, 'TypeD'), 'raw mode should credit the depth-driven marker DEP'
+assert 'DEP' not in why(dep, 'TypeD'), 'depth mode still credits the depth-driven marker DEP'
+assert 'TRUE' in why(dep, 'TypeB'), 'depth mode lost the true marker TRUE'
+print('PASS: report depth mode (DEP not credited in the deep TypeD; TRUE kept for TypeB)')
+PYEOF
 
 step "7c. lineage tags on the shipped marker tables"
 python "$SKILL/tests/test_lineage_tags.py" | tail -2

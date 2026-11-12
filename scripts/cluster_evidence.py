@@ -112,12 +112,34 @@ ATAC_QC = {
     'tss': ['tss_enrichment', 'TSSEnrichment', 'tsse', 'TSS_enrichment'],
     'frip': ['frip', 'FRiP', 'pct_reads_in_peaks'],
 }
+RANK_SHRINK_K = 2  # marker-score ranking: mean x n/(n+2) (1 gene x0.33, 2 x0.5, 4 x0.67, 10 x0.83)
 DEPTH_CANDIDATES = ['total_counts', 'n_fragments', 'nCount_peaks', 'nCount_ATAC', 'n_counts', 'nCount_RNA']
 # Organelle-like loci, matched against gene ID, var chromosome column and rank-1 reference hit ID.
 # Conservative on purpose: unplaced-scaffold names (e.g. Catharanthus CRO.S00...) are not matched;
 # pass --organelle-regex for those.
 DEFAULT_ORGANELLE = (r'(?i)^(ATCG|ATMG)\d|^(chr)?(C|M|Pt|Mt|Cp|chloroplast|mitochondrion|mitochondria|plastid)'
                      r'([_:.\-]|$)|chloroplast|mitochondri|plastome|plastid_genome')
+# Organellar gene products in a gene description (rank-1 reference hit or --gene-annotation). Only products
+# encoded in plant organellar genomes (rbcL, ycf, atp8/9, cox1-3, cob, ccm, matR, plastid NDH/PSI/PSII subunits as
+# named in Araport); nuclear-encoded paralogs are named differently there.
+ORGANELLE_DESC = re.compile(r'(?i)\b(ycf\d+|atp ?8|atp ?9|ATP synthase (9|subunit 9) mitochondrial|matR|ccmF|ccmB|ccmC|'
+                            r'ribulose bisphosphate carboxylase large chain|NADH-plastoquinone oxidoreductase subunit|'
+                            r'NADH:ubiquinone/plastoquinone oxidoreductase, chain|cytochrome c oxidase,? subunit (I|II|III)\b|'
+                            r'plant mitochondrial ATPase|mitochondrially encoded|chloroplast[- ]encoded|'
+                            r'Mitovirus RNA-dependent)')
+NUMT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'references', 'annotation',
+                         'arabidopsis_numt_chr2.tsv')
+
+
+def load_numt():
+    try:
+        t = pd.read_csv(NUMT_FILE, sep='\t', comment='#', dtype=str)
+        return set(t['gene_id'].str.upper())
+    except (OSError, KeyError, ValueError):
+        return set()
+
+
+NUMT_SET = load_numt()
 CHROM_COLS = ['chrom', 'chr', 'seqname', 'seqid', 'Chromosome', 'chromosome', 'seqnames']
 
 
@@ -603,11 +625,20 @@ def marker_tables(adata, M, found, key, markers, min_frac=0.02, bins=None):
         agg['score_oe'] = ('log2oe', 'mean')
     scores = long.groupby(['cluster', 'cell_type']).agg(**agg).reset_index()
     scores['n_detected'] = scores['n_detected'].astype(int)
+    # Ranking keys: the mean shrunk toward 0 by set size, n / (n + RANK_SHRINK_K) with n = markers measured, so a
+    # one-gene type (x0.33) does not outrank a coherent multi-gene type on one lucky gene. Scores are unchanged.
+    shrink = scores['n_markers'] / (scores['n_markers'] + RANK_SHRINK_K)
+    scores['rank_score'] = scores['score'] * shrink
+    if exp is not None:
+        scores['rank_score_oe'] = scores['score_oe'] * shrink
     return long, scores
 
 
-def organelle_mask(genes, adata, gm, rx):
-    """Boolean per gene: ID, var chromosome or rank-1 reference hit matches the organelle regex."""
+def organelle_mask(genes, adata, gm, rx, ann=None, numt=None):
+    """Boolean per gene: ID, var chromosome or rank-1 reference hit matches the organelle regex, the gene (or its
+    rank-1 hit) is a known Arabidopsis NUMT locus, or its description (rank-1 hit or --gene-annotation) names an
+    organellar-genome product."""
+    numt = numt or set()
     chrom = None
     for c in CHROM_COLS:
         if c in adata.var.columns:
@@ -618,9 +649,15 @@ def organelle_mask(genes, adata, gm, rx):
         ids = [str(g)]
         if chrom is not None and g in chrom.index:
             ids.append(chrom[g])
+        descs = []
         if gm is not None and g in gm.index:
             ids.append(str(gm.at[g, 'ref_gene']))
-        out.append(any(rx.search(x) for x in ids))
+            descs.append(str(gm.at[g, 'ref_description']))
+        if ann is not None and g in ann.index:
+            descs.append(str(ann.at[g, 'description']))
+        hit = (any(rx.search(x) for x in ids) or any(x.upper().split('.')[0] in numt for x in ids)
+               or any(ORGANELLE_DESC.search(x) for x in descs if x))
+        out.append(hit)
     return np.array(out, dtype=bool)
 
 
@@ -744,7 +781,9 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
         f.write(f"# Cluster evidence: `{key}` ({len(sizes)} clusters, {adata.n_obs:,} cells)\n\n")
         f.write("Marker score = mean z (across clusters) of a cell type's marker genes' cluster means; "
                 "frac = mean fraction of cells expressing those markers; det = markers detected in the cluster / "
-                "markers measured; `[1 gene]` = score rests on one detected marker. "
+                "markers measured; `[1 gene]` = score rests on one detected marker. Types are listed by the score "
+                f"shrunk by set size (x n/(n+{RANK_SHRINK_K}), n = markers measured), so a one-gene type does not "
+                "outrank a coherent multi-gene type; the score shown is unshrunk. "
                 "`*` = marker with function evidence (characterized cell-type function).\n")
         f.write(f"Scores are capped by the number of clusters: the largest possible z with {len(sizes)} "
                 f"clusters is ~{np.sqrt(max(len(sizes) - 1, 1)):.1f}. Compare scores within this key, not across keys "
@@ -768,7 +807,8 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                     f"fractions: deep clusters detect every gene more often.\n")
         if organelle is not None:
             f.write(f"organellar_DNA flag: >= {organelle_flag:.0%} of the top {n_show} DE genes are organelle-like "
-                    f"loci (regex `{organelle.pattern}` on gene ID, chromosome or reference hit).\n")
+                    f"loci (regex `{organelle.pattern}` on gene ID, chromosome or reference hit; known Arabidopsis "
+                    f"chr2 NUMT loci; or a description naming an organellar-genome product).\n")
         if qc_cols:
             f.write('QC shown as cluster median (x dataset median'
                     + (f'; sib x median of sibling clusters, i.e. clusters sharing its {sib_key} parent' if sib_key
@@ -832,7 +872,7 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                         flags = [x for x in flags if not x.startswith(('low counts', 'low genes'))]
             d = de[de['cluster'] == cl].head(n_show) if not de.empty else pd.DataFrame()
             if organelle is not None and len(d):
-                om = organelle_mask(list(d['gene']), adata, gm, organelle)
+                om = organelle_mask(list(d['gene']), adata, gm, organelle, ann=ann, numt=NUMT_SET)
                 if om.mean() >= organelle_flag:
                     flags.append(f"organellar_DNA ({int(om.sum())}/{len(d)} top DE genes on organelle-like loci; "
                                  f"NUPT/NUMT or organellar reads: a QC artefact, not a cell type)")
@@ -855,7 +895,9 @@ def write_markdown(path, key, adata, de, long, scores, comp, hier, qc_cols, gm, 
                 f.write('- **FLAGS**: ' + '; '.join(flags) + '\n')
             if len(s_all):
                 oe_mode = 'score_oe' in s_all.columns
-                s = s_all.sort_values('score_oe' if oe_mode else 'score', ascending=False).head(4)
+                rk = 'rank_score_oe' if oe_mode else 'rank_score'
+                rk = rk if rk in s_all.columns else ('score_oe' if oe_mode else 'score')
+                s = s_all.sort_values(rk, ascending=False).head(4)
                 parts = []
                 for r in s.itertuples():
                     lt = long[(long['cluster'] == cl) & (long['cell_type'] == r.cell_type)]
@@ -1006,9 +1048,12 @@ def main():
                                                      'markers', 'celltype_aliases.tsv'),
                    help='alias<TAB>canonical table; aliased cell types are never paired in the doublet flag '
                         '(default: references/markers/celltype_aliases.tsv, skipped if missing)')
-    p.add_argument('--import-labels', action='append', default=[],
-                   help='path:col[:new_name] (repeatable), as in apply_annotations.py; e.g. '
+    p.add_argument('--import-labels', nargs='+', action='extend', default=[],
+                   help='path:col[:new_name] (one or more, flag repeatable), as in apply_annotations.py; e.g. '
                         'published per-cell labels to evaluate. Pass the new name in --cluster-keys')
+    p.add_argument('--qc-keys', nargs='+', action='extend', default=[],
+                   help='extra numeric obs columns shown per cluster in the QC line (e.g. tss_enrichment frip); '
+                        'with --assay atac, common TSS-enrichment/FRiP names are included automatically')
     p.add_argument('--assay', choices=['rna', 'atac'], default='rna',
                    help='atac: gene activity from accessibility; depth-matched O/E on, organellar_DNA flag on, '
                         'stress list and doublet flag off, missing markers reported as unmeasurable')
@@ -1176,6 +1221,13 @@ def main():
 
     meta = [m for m in args.meta_keys if m in adata.obs.columns]
     qc_cols = {k: c for k, c in ((k, pick(adata.obs, v)) for k, v in QC_CANDIDATES.items()) if c}
+    for c in args.qc_keys:
+        if c not in adata.obs.columns:
+            print(f'  WARN --qc-keys {c}: not in obs; skipped')
+        elif not pd.api.types.is_numeric_dtype(adata.obs[c]):
+            print(f'  WARN --qc-keys {c}: not numeric; skipped')
+        elif c not in qc_cols.values():
+            qc_cols[c] = c
     print(f'  meta: {meta}; QC cols: {qc_cols}')
 
     if markers is not None:

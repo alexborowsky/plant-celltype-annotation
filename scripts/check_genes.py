@@ -73,8 +73,9 @@ def clean(s):
     return '' if s.lower() in PLACEHOLDERS else s
 
 
-def name_tokens(s, seps=r'[,|]'):
-    """Names in a symbol/alias cell; 'ZmSCR1 (scro1)' gives ZmSCR1 (scro1), ZmSCR1 and scro1."""
+def name_tokens(s, seps=r'[,|/]|;\s+'):
+    """Names in a symbol/alias cell; 'ZmSCR1 (scro1)' gives ZmSCR1 (scro1), ZmSCR1 and scro1; 'A/B' and 'A; B'
+    give A and B (a ';' without a space is part of a name: CYCB1;1)."""
     out = []
     for x in re.split(seps, clean(s)):
         x = clean(x)
@@ -85,6 +86,14 @@ def name_tokens(s, seps=r'[,|]'):
         if m:
             out += [y for y in (clean(m.group(1)), clean(m.group(2))) if y]
     return list(dict.fromkeys(out))
+
+
+def norm_name(s):
+    """Loose name key: upper case without -, _, . or spaces, and without a leading AT/AT- species prefix when a
+    letter follows (ATHB-15, AtHB15 and HB15 all give HB15). Used only when the exact name finds nothing."""
+    t = re.sub(r'[\s._-]', '', str(s).upper())
+    m = re.match(r'^AT([A-Z].*\d.*)$', t)
+    return m.group(1) if m else t
 
 
 def ref_key(g):
@@ -214,6 +223,11 @@ class GeneResolver:
             for g, s, al in zip(self.ref_ann.index, self.ref_ann['symbol'], self.ref_ann['aliases']):
                 for t in name_tokens(s) + ([clean(s)] if clean(s) else []) + name_tokens(al):
                     self.refann_sym.setdefault(t.upper(), set()).add(ref_key(g))
+        # loose-name index over every symbol dictionary: normalised name -> exact upper-case names
+        self.norm_idx = {}
+        for d in (self.ann_sym, self.mk_sym, self.ref_sym, self.refann_sym):
+            for k in d:
+                self.norm_idx.setdefault(norm_name(k), set()).add(k)
 
     # -- symbol / homolog helpers used by the report
     def symbol_of(self, gene):
@@ -239,7 +253,7 @@ class GeneResolver:
         d.update({k: v for k, v in kw.items() if v is not None})
         return d
 
-    def resolve(self, term):
+    def resolve(self, term, loose=True):
         """-> list of copy dicts (gene_id, route, ref_gene, ref_symbol, hit_rank, pident, rbh, in_data)."""
         t = term.strip()
         T = t.upper()
@@ -307,6 +321,14 @@ class GeneResolver:
             for part in name_tokens(t)[1:]:
                 for d in self.resolve(part):
                     add(d)
+        if not found and not refs and loose:  # HB15 ~ ATHB-15 ~ AtHB15: same name without prefix/hyphens
+            alts = sorted(self.norm_idx.get(norm_name(t), set()) - {T})
+            for a in alts:
+                for d in self.resolve(a, loose=False):
+                    d = dict(d, route=f"{d['route']} (loose name match {a})")
+                    add(d)
+            if alts and found:
+                self.missed.pop(t, None)
         out = list(found.values())
         out.sort(key=lambda d: (not d['in_data'], 99 if np.isnan(d['hit_rank']) else d['hit_rank'],
                                 -(0 if np.isnan(d['pident']) else d['pident']), str(d['gene_id'])))
@@ -339,16 +361,25 @@ def parse_terms(genes, genes_file):
 def cluster_stats(adata, X, var_names, genes, key, bins=None):
     """-> (found, groups, sizes, mean, frac, z, exp) over clusters of key (cells with NaN key excluded).
 
-    exp: depth-matched expected fraction (groups x genes) when bins are given, else None."""
-    M, found = gene_matrix(adata, X, var_names, genes)
+    exp: depth-matched expected fraction (groups x genes) when bins are given, else None. The expectation uses
+    all other cells, including cells the key leaves unlabelled (an imported key covering a subset would
+    otherwise compare a subcluster only with its few siblings, and O/E explodes)."""
+    M_all, found = gene_matrix(adata, X, var_names, genes)
     lab = adata.obs[key].astype(str).to_numpy()
     ok = ~pd.isna(adata.obs[key].to_numpy()) & (lab != 'nan') & (lab != '')
-    M = M[ok] if ok.sum() < len(ok) else M
+    M = M_all[ok] if ok.sum() < len(ok) else M_all
     groups, mean, frac = group_mean_frac(M, lab[ok])
     sizes = pd.Series(lab[ok]).value_counts().reindex(groups).to_numpy()
     sd = mean.std(0, ddof=0)
     z = (mean - mean.mean(0)) / np.where(sd > 0, sd, 1)
-    exp = depth_expected(M, lab[ok], bins.subset(ok), groups) if (bins is not None and found) else None
+    exp = None
+    if bins is not None and found:
+        if ok.all():
+            exp = depth_expected(M, lab, bins, groups)
+        else:
+            other = '__unlabelled__'
+            lab2 = np.where(ok, lab, other)
+            exp = depth_expected(M_all, lab2, bins, list(groups) + [other])[:len(groups)]
     return found, groups, sizes, mean, frac, z, exp
 
 
@@ -381,7 +412,7 @@ def main():
                    help='obs depth column (total_counts, n_fragments): add depth-matched expected fraction and '
                         'O/E per cluster and pick the peak cluster by O/E (ATAC gene activity, uneven depth)')
     p.add_argument('--depth-bins', type=int, default=20, help='depth quantile bins for --depth-key')
-    p.add_argument('--import-labels', action='append', default=[],
+    p.add_argument('--import-labels', nargs='+', action='extend', default=[],
                    help='path:col[:new_name] (repeatable), as in cluster_evidence.py: per-cell labels (e.g. '
                         'published) to use as a --cluster-key')
     p.add_argument('--out', default=None, help='long TSV output')
