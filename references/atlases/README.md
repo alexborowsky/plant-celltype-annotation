@@ -10,16 +10,16 @@ One file per group, from the survey collations (2026-10-19/20, updated with gap-
 | Group | Tier | Datasets | Markers | High conf. | Function | Cell types |
 |---|---|---|---|---|---|---|
 | [wheat_inflorescence](wheat_inflorescence.md) | primary | 3 | 223 | 88 | 105 | 24 |
-| [arabidopsis_root](arabidopsis_root.md) | primary | 7 | 167 | 65 | 69 | 23 |
+| [arabidopsis_root](arabidopsis_root.md) | primary | 7 | 181 | 67 | 74 | 23 |
 | [arabidopsis_shoot_apex](arabidopsis_shoot_apex.md) | primary | 2 | 82 | 47 | 49 | 19 |
 | [arabidopsis_seed](arabidopsis_seed.md) | primary | 4 | 121 | 46 | 43 | 32 |
 | [arabidopsis_stem](arabidopsis_stem.md) | primary | 2 | 84 | 41 | 44 | 16 |
 | [maize_endosperm](maize_endosperm.md) | primary | 3 | 83 | 38 | 15 | 13 |
-| [arabidopsis_leaf](arabidopsis_leaf.md) | primary | 6 | 125 | 34 | 41 | 22 |
+| [arabidopsis_leaf](arabidopsis_leaf.md) | primary | 6 | 152 | 37 | 48 | 24 |
 | [arabidopsis_seedling](arabidopsis_seedling.md) | primary | 1 | 58 | 34 | 41 | 15 |
 | [populus_stem](populus_stem.md) | primary | 6 | 96 | 34 | 43 | 16 |
+| [arabidopsis_inflorescence](arabidopsis_inflorescence.md) | primary | 1 | 83 | 29 | 51 | 27 |
 | [arabidopsis_fruit](arabidopsis_fruit.md) | primary | 1 | 103 | 28 | 46 | 36 |
-| [arabidopsis_inflorescence](arabidopsis_inflorescence.md) | primary | 1 | 77 | 27 | 49 | 27 |
 | [maize_inflorescence](maize_inflorescence.md) | primary | 2 | 73 | 24 | 15 | 21 |
 | [soybean_nodule](soybean_nodule.md) | primary | 2 | 78 | 21 | 20 | 11 |
 | [arabidopsis_endosperm](arabidopsis_endosperm.md) | primary | 2 | 58 | 20 | 23 | 13 |
@@ -39,7 +39,6 @@ One file per group, from the survey collations (2026-10-19/20, updated with gap-
 | [lotus_root](lotus_root.md) | primary | 2 | 45 | 9 | 31 | 12 |
 | [maize_root](maize_root.md) | primary | 4 | 65 | 9 | 16 | 14 |
 | [rice_seed](rice_seed.md) | primary | 3 | 64 | 9 | 20 | 14 |
-| [rice_root](rice_root.md) | core (`markers/rice_root.tsv`) | 6 | 46 | 12 | 19 | 16 |
 | [lotus_nodule](lotus_nodule.md) | secondary | 1 | 24 | 14 | 17 | 5 |
 | [catharanthus_leaf](catharanthus_leaf.md) | secondary | 1 | 39 | 13 | 14 | 11 |
 | [barley_inflorescence](barley_inflorescence.md) | secondary | 1 | 42 | 7 | 31 | 23 |
@@ -65,3 +64,4 @@ One file per group, from the survey collations (2026-10-19/20, updated with gap-
 | [peanut_fruit](peanut_fruit.md) | secondary | 1 | 29 | 0 | 1 | 11 |
 | [physcomitrium_other](physcomitrium_other.md) | secondary | 1 | 37 | 0 | 0 | 6 |
 | [populus_root](populus_root.md) | secondary | 2 | 15 | 0 | 1 | 8 |
+| [rice_root](rice_root.md) | core (`markers/rice_root.tsv`) | 6 | 46 | 12 | 19 | 16 |

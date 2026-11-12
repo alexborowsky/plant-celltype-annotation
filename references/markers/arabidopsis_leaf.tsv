@@ -10,7 +10,7 @@ arabidopsis	leaf	Epidermis	AT2G26250	FDH	type	function	high			KCS10 VLCFA elonga
 arabidopsis	leaf	Epidermis	AT1G51500	CER5	type	function	medium			ABCG12 transporter exporting cuticular wax from epidermal cells.	classic
 arabidopsis	leaf	Epidermis	AT1G49430	LACS2	type	function	medium			Long-chain acyl-CoA synthetase for cutin biosynthesis in the epidermis.	classic
 arabidopsis	leaf	Epidermis	AT2G38540	LTP1	type	characterized_enriched	low			Epidermis-enriched lipid transfer protein; cuticle role not established; large gene family.	classic
-arabidopsis	leaf	Guard	AT5G46240	KAT1	type	function	high		bryophyte	Inward-rectifying K+ channel driving guard-cell swelling for stomatal opening.	classic
+arabidopsis	leaf	Guard	AT5G46240	KAT1	type	function	high		bryophyte	Inward-rectifying K+ channel driving guard-cell swelling for stomatal opening. Also DE in companion-cell clusters in some nuclei atlases (Kim 2021, Lee 2025, Guo 2025), not in their guard clusters; do not read KAT1 alone as guard identity in a phloem-like cluster.	classic
 arabidopsis	leaf	Guard	AT1G12480	SLAC1	type	function	high		bryophyte	Guard-cell slow anion channel required for stomatal closure.	classic
 arabidopsis	leaf	Guard	AT3G24140	FAMA	type	function	high		bryophyte	bHLH TF for the guard mother cell to guard cell transition; strongest in young guard cells.	classic
 arabidopsis	leaf	Stomatal_lineage	AT5G53210	SPCH	type	function	high		bryophyte	bHLH TF initiating stomatal lineage asymmetric divisions; young leaves only.	classic

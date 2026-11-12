@@ -734,6 +734,13 @@ cluster:
      one gene: SAG12, SAG13, SAG20/21, SAG101, ORE1/NAC092, WRKY53, NYE1/SGR,
      NYC1, PAO, autophagy (ATG8), aspartic/cysteine proteases (APA1, RD21),
      glyoxalases and protease inhibitors, plus falling photosynthesis.
+     For a leaf, also score the leaf-age gene sets
+     (`references/stress/leaf_age_sets_Guo2025.tsv`: 1,856 core
+     senescence genes and 1,875 young-leaf genes, with
+     `score_gene_sets.py --sets`): senescence is a high senescence set
+     *and* a low young set. In an ageing leaf series it rises in every
+     lineage at once, so record it in the State column of each type, not as
+     a cluster type of its own.
      When the canonical marker is not measurable (absent or all-zero), the
      result is "untested", not "not found". Call **xylem** only with xylem identity
      genes (VND/NAC, XCP1/2, ACL5, WAT1, secondary-wall CESA4/7/8, IRX)
@@ -1296,6 +1303,7 @@ markers belong in published atlas tables, labeled as such.
 | `scripts/type_under_state.py` | Step 7 item 10: the type of a state cluster, judged on candidate-type genes the state does not change, at matched depth. |
 | `scripts/score_gene_sets.py` | Step 3 for labels published only per cluster: score the published clusters' marker lists in the current clusters. |
 | `references/atac.md`, `scripts/gene_activity.py` | snATAC-seq or multiome data: route by assay, gene activity, depth-matched evidence, ATAC QC, LSI subclustering. |
+| `references/stress/leaf_age_sets_Guo2025.tsv`, `senescence_validated_genes_Guo2025.tsv` | Testing a senescence state: leaf-age gene sets (senescence vs young) for `score_gene_sets.py`, and 335 functionally validated senescence genes. |
 | `references/stress/protoplasting_induced_Shahan2022.txt` | Judging whether a cluster is dissociation stress. |
 | `references/plant_pitfalls.md` | Reasoning about clusters: states vs types, ambient RNA, lineage-specific cell types, homology traps. |
 | `references/file_formats.md` | Writing annotation, expected-cell-type, marker, color, or gene-map tables. |

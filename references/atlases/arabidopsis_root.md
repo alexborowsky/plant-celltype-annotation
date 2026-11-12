@@ -285,3 +285,7 @@ All raises are medium to high. Rows that already had high confidence (WOX5, CASP
 - Function claims marked "from literature" (Avci 2008, Furuta 2014, Tian 2010, Miyashima 2019, Gaymard 1998 and others) were not re-read in this run.
 - No in-data check (Step 3b) has been run for any new row.
 - Large objects were not downloaded: the Otero SCE rds (522.6 MB, GitHub release v2022.09.04) and GSE181999_RAW.tar (909 MB).
+
+## Added review: Guo 2025 (2026-11-12)
+
+Guo et al. 2025 *Cell* (`Guo2025/`, main review in `../arabidopsis_leaf/Guo2025/`): root nuclei at 6 and 11 DAG; third reference after Shahan 2022 and Lyu 2025, the best nuclei dataset and the only one labelling suberized endodermis. Added 14 rows, updated 2 (2026-11-12). ROPGEF3 is trichoblast there (characterized root-hair role), not phloem.

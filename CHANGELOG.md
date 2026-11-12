@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/). While the version is 0.x, any release may change
 script flags or table formats; breaking changes are listed under **Changed**.
 
+## [0.10.2] - 2026-11-12
+
+### Added
+- **Guo et al. 2025 *Cell* Arabidopsis single-nucleus atlas** (doi:10.1016/j.cell.2025.03.024) reviewed for the
+  leaf, root and inflorescence groups. 47 new marker rows (leaf 27, root 14, inflorescence 6); 8 existing rows gain
+  Guo support (UMAMIT20, CYCD7;1 and MC3 now with a second independent study). Atlas notes and the catalog say where
+  the per-nucleus labels are (CNGBdb per-tissue Seurat objects) and which labels to adopt or revise (every leaf
+  "xylem" label is the glucosinolate bundle-sheath cluster).
+- **Leaf-age gene sets** (`references/stress/leaf_age_sets_Guo2025.tsv`): 1,856 core senescence-associated genes and
+  1,875 young-leaf genes, for `score_gene_sets.py --sets`; and 335 functionally validated senescence genes with their
+  direction (`senescence_validated_genes_Guo2025.tsv`). SKILL.md and plant_pitfalls.md: senescence is a high
+  senescence set *and* a low young set, and in an ageing leaf series it is a State across lineages, not a cluster.
+
+### Changed
+- KAT1 (AT5G46240) stays a Guard function marker; its basis notes that it is also DE in companion-cell clusters in
+  three nuclei atlases, so it should not be read alone as guard identity in a phloem-like cluster.
+- `score_gene_sets.py` skips `#` comment lines in `--sets`.
+
 ## [0.10.1] - 2026-11-12
 
 From the v0.10.0 re-test (four snATAC datasets and three RNA regressions). The cycling carve-out and the

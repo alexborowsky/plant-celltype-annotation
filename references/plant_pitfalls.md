@@ -89,7 +89,13 @@
 - **Senescence needs a panel.** SAG12 is often missing from nuclei matrices.
   Test SAG13/20/21/101, ORE1, WRKY53, chlorophyll catabolism (SGR, NYC1, PAO),
   proteases (APA1, RD21) and falling photosynthesis together; a one-gene null
-  is "untested". A negative panel rejects senescence but does not make a
+  is "untested". Score the leaf-age gene sets as well
+  (`references/stress/leaf_age_sets_Guo2025.tsv`, Guo et al. 2025: core
+  senescence genes vs young-leaf genes; and
+  `senescence_validated_genes_Guo2025.tsv`, 335 genes with mutant evidence,
+  promote or delay). In the Guo leaf time course, SAG13, WRKY75 and ORE1
+  rise in every lineage from mid-age on and SAG12 is barely detected in
+  nuclei: senescence there is a state across types, not a cluster. A negative panel rejects senescence but does not make a
   distinct cluster the majority type: in a leaf atlas test, a cluster with
   its own program (present in all samples, enriched in one) was called
   Mesophyll, first after a SAG12-only test and then as "Mesophyll +

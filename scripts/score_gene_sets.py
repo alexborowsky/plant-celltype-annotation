@@ -122,7 +122,7 @@ def main():
     p.add_argument('--out', required=True, help='output prefix')
     args = p.parse_args()
 
-    sets = pd.read_csv(args.sets, sep='\t', dtype=str).fillna('')
+    sets = pd.read_csv(args.sets, sep='\t', dtype=str, comment='#').fillna('')
     set_col = args.set_col or first_col(sets.columns, ['set_name', 'set', 'published_cluster', 'cluster', 'label'])
     if not set_col or set_col not in sets.columns:
         sys.exit(f'set column not found; give --set-col (columns: {list(sets.columns)})')

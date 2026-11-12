@@ -136,3 +136,7 @@ myrosin rows are new to the skill.
 - Not reviewed, possible further datasets for this group: other Arabidopsis flower, anther or
   inflorescence single-cell atlases (for example the Long et al. 2021 source of the paper's tapetum list).
   A second dataset is needed for real cross-study agreement.
+
+## Added review: Guo 2025 (2026-11-12)
+
+Guo et al. 2025 *Cell* (`Guo2025/`, main review in `../arabidopsis_leaf/Guo2025/`): early, middle and late flower nuclei; first-ranked reference ahead of Lee 2025 if pollen ambient RNA is corrected. Added 6 rows, updated 2 (2026-11-12).

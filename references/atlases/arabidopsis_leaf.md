@@ -377,3 +377,7 @@ labels are spatial and cannot be matched to dissociated barcodes. Add:
   re-read here.
 - Xia's per-section h5ad files beyond `S1-1` and its raw data were not
   examined.
+
+## Added review: Guo 2025 (2026-11-12)
+
+Guo et al. 2025 *Cell* (`Guo2025/`): six-stage rosette senescence time course (14-49 DAG, 72k nuclei) plus cauline leaf. Adopt guard, companion cell, phloem parenchyma, epidermis, mesophyll, trichome (S1); every "xylem" label is the glucosinolate bundle-sheath cluster; senescence is stage-wide across lineages (a State, not a type). Reference for leaf age and senescence; leaf-age gene sets shipped in the skill (`references/stress/leaf_age_sets_Guo2025.tsv`). Added 27 rows, updated 4 (2026-11-12).
